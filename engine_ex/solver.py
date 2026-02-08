@@ -1,5 +1,7 @@
 """스케줄링 엔진 - Google OR-Tools CP-SAT Solver
 
+Constraint Programming + SAT Solver 기반 최적화 엔진 : 조건을 모두 만족하는 해 + 그 중 가장 좋은 해
+
 Hard Constraints (16개):
  1. 하루 1근무
  2. 최소 인원 (평일/주말)
@@ -18,7 +20,7 @@ Hard Constraints (16개):
 15. 월 휴무일 범위
 16. 최대 연속 휴무
 
-Soft Constraints (목적함수 최대화):
+Soft Constraints (목적함수 최대화):   -> 추후 수정
  - 희망 요청 반영 보너스 (가중치 10)
  - D/E/N 횟수 편차 최소 (가중치 5)
  - 야간 균등 배분 (가중치 8)
@@ -31,6 +33,8 @@ from engine.models import Nurse, Request, Rules, Schedule
 
 # 근무 타입 인덱스
 D, E, N, OFF = 0, 1, 2, 3
+
+# 추후 매핑 시 사용
 SHIFT_NAMES = {D: "D", E: "E", N: "N", OFF: "OFF"}
 SHIFT_INDEX = {"D": D, "E": E, "N": N, "OFF": OFF}
 
@@ -45,14 +49,16 @@ def solve_schedule(
 ) -> Schedule:
     """OR-Tools CP-SAT으로 최적 근무표 생성"""
 
-    num_days = calendar.monthrange(year, month)[1]
-    num_nurses = len(nurses)
-    num_shifts = 4  # D, E, N, OFF
+    num_days = calendar.monthrange(year, month)[1]    # 그 달의 총 일수
+    num_nurses = len(nurses)                          # 간호사 수
+    num_shifts = 4  # D, E, N, OFF                    # 근무 종류
 
-    model = cp_model.CpModel()
+    # 모델 생성 : 여기에 변수 만들고, 제약조건 넣고, 목적함수 정의
+    model = cp_model.CpModel()    
 
     # ──────────────────────────────────────────
-    # 변수 정의: shifts[n][d][s] = BoolVar
+    # 변수 정의: shifts[n][d][s] = BoolVar 
+    #          [간호사][날짜][근무타입] = 이 간호사가 이 날에 이 근무를 하면 1 아니면 0
     # ──────────────────────────────────────────
     shifts = {}
     for ni in range(num_nurses):
@@ -60,10 +66,10 @@ def solve_schedule(
             for si in range(num_shifts):
                 shifts[(ni, di, si)] = model.new_bool_var(f"shift_n{ni}_d{di}_s{si}")
 
-    # 인덱스 맵
+    # 인덱스 맵 : 간호사 ID(1, 2, 3)를 배열 인덱스로 변환
     nurse_idx = {nurse.id: i for i, nurse in enumerate(nurses)}
 
-    # 요청 맵
+    # 요청 맵 : 간호사가 해당 날짜에 무엇을 요청했는지 찾기위한 딕셔너러ㅣ
     req_map = {}
     for r in requests:
         req_map[(r.nurse_id, r.day)] = r
@@ -182,12 +188,12 @@ def solve_schedule(
                     model.add(shifts[(ni, di, si)] == shifts[(ji, di, si)])
 
     # 13. 야간 숙련자 필수
-    if rules.night_senior_required:
-        seniors = [ni for ni, nurse in enumerate(nurses)
-                   if nurse.skill_level >= 3 and nurse.can_night]
+    if rules.senior_required_all:
+        for si in [D, E, N]:
+            seniors = [ni for ni, nurse in enumerate(nurses) if nurse.skill_level >= 3]
         if seniors:
             for di in range(num_days):
-                model.add(sum(shifts[(ni, di, N)] for ni in seniors) >= 1)
+                model.add(sum(shifts[(ni, di, si)] for ni in seniors) >= 1)
 
     # 14. 신규끼리 야간 금지
     if rules.ban_newbie_pair_night:

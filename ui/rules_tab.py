@@ -108,11 +108,11 @@ class RulesTab(QWidget):
         # ── 팀 구성 ──
         team_group = QGroupBox("팀 구성 규칙")
         team_layout = QVBoxLayout(team_group)
-        self.night_senior = QCheckBox("야간에 숙련자(숙련도 3 이상) 1명 이상 필수")
+        self.senior_all = QCheckBox("모든 근무에 숙련자(숙련도 3 이상) 1명 이상 필수")
         self.ban_newbie = QCheckBox("신규(숙련도 1) 끼리 같은 야간 배정 금지")
-        self.night_senior.setChecked(True)
+        self.senior_all.setChecked(True)
         self.ban_newbie.setChecked(True)
-        team_layout.addWidget(self.night_senior)
+        team_layout.addWidget(self.senior_all)
         team_layout.addWidget(self.ban_newbie)
         layout.addWidget(team_group)
 
@@ -173,7 +173,7 @@ class RulesTab(QWidget):
         self.min_off.setValue(r.min_monthly_off)
         self.max_off.setValue(r.max_monthly_off)
         self.max_consec_off.setValue(r.max_consecutive_off)
-        self.night_senior.setChecked(r.night_senior_required)
+        self.senior_all.setChecked(r.senior_required_all)
         self.ban_newbie.setChecked(r.ban_newbie_pair_night)
 
     def _sync_from_ui(self):
@@ -193,7 +193,7 @@ class RulesTab(QWidget):
             min_monthly_off=self.min_off.value(),
             max_monthly_off=self.max_off.value(),
             max_consecutive_off=self.max_consec_off.value(),
-            night_senior_required=self.night_senior.isChecked(),
+            senior_required_all=self.senior_all.isChecked(),
             ban_newbie_pair_night=self.ban_newbie.isChecked(),
         )
 
