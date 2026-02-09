@@ -21,6 +21,10 @@ def validate_change(
     if new_shift == "N" and not nurse.can_night:
         violations.append(f"{nurse.name}은(는) Night 근무 불가 (야간 금지)")
 
+    # 1-1. 평일만 근무 체크
+    if nurse.weekday_only and new_shift != "OFF" and schedule.is_weekend(day):
+        violations.append(f"{nurse.name}은(는) 평일만 근무 (주말 근무 불가)")
+
     # 2. 금지 패턴 (전날 → 오늘)
     if day > 1:
         prev = schedule.get_shift(nurse.id, day - 1)
