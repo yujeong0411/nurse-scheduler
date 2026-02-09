@@ -37,6 +37,16 @@ OFF_PRIORITY = ["주", "OFF", "생휴", "수면", "POFF"]
 # 1-2월, 3-4월, 5-6월, 7-8월, 9-10월, 11-12월
 SLEEP_PAIRS = [(1,2), (3,4), (5,6), (7,8), (9,10), (11,12)]
 
+def get_sleep_partner_month(month: int) -> int | None:
+    """수면 계산용 파트너 월 반환
+    1-2월, 3-4월, 5-6월, 7-8월, 9-10월, 11-12월 고정 페어
+    홀수월 = 페어 첫 달 → 파트너 없음 (아직 모름)
+    짝수월 = 페어 둘째 달 → 전월이 파트너
+    """
+    if month % 2 == 0:
+        return month - 1
+    return None
+
 def get_sleep_pair(month: int) -> tuple[int, int]:
     """해당 월이 속한 수면 계산 페어 반환"""
     for pair in SLEEP_PAIRS:
