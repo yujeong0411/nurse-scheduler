@@ -370,6 +370,7 @@ def _normalize_code(val: str) -> str | None:
         "공가": "공가", "공": "공가",
         "경가": "경가", "경": "경가",
         "특휴": "특휴",
+        "보수": "보수",
         "POFF": "POFF",
     }
 
@@ -377,6 +378,10 @@ def _normalize_code(val: str) -> str | None:
         return exact_map[upper]
     if val in exact_map:
         return exact_map[val]
+
+    # "수면(1,2월)", "수면(2월)" 등 → "수면"
+    if val.startswith("수면"):
+        return "수면"
 
     # off 소문자
     if upper == "OFF":
@@ -482,8 +487,10 @@ def import_requests(
     # ── 데이터 읽기 ──
     requests = []
     weekly_off_map = {}
-    stop_words = {"off", "주", "수면", "생휴", "vac", "공가", "필수", "총"}
+    stop_words = {"off", "주", "수면", "생휴", "vac", "공가", "총"}
 
+    nid_counter = max([n.id for n in nurses], default=0) + 1 # 새로운 ID 시작점
+    
     for row in ws.iter_rows(min_row=data_start):
         # 이름
         name_cell = row[name_col - 1] if name_col - 1 < len(row) else None
@@ -491,7 +498,10 @@ def import_requests(
         if not name or name.lower() in stop_words:
             continue
         if name not in nurse_name_map:
-            continue
+            new_nurse = Nurse(id=nid_counter, name=name)
+            nurses.append(new_nurse)        # 원본 리스트에 추가
+            nurse_name_map[name] = new_nurse # 맵에 추가
+            nid_counter += 1
 
         nurse = nurse_name_map[name]
         nid = nurse.id
@@ -535,10 +545,6 @@ def import_requests(
             if code is None:
                 continue
 
-            # "보수", "필수"는 교육일 → D 근무로 처리
-            if code in ("보수", "필수"):
-                code = "D"
-
             # "주" → 고정 주휴 요일 감지
             if code == "주":
                 wd = calendar.weekday(year, month, d)
@@ -562,14 +568,18 @@ def import_nurses_from_request(filepath: str) -> list[str]:
     wb = load_workbook(filepath, read_only=True, data_only=True)
     ws = wb.active
 
-    # 날짜 헤더 행 찾기
+    # ── 날짜 헤더 행 + 첫 날짜 열 찾기 ──
     header_row = None
+    min_day_col = None
     for row in ws.iter_rows(min_row=1, max_row=10):
         for cell in row:
             val = str(cell.value).strip() if cell.value else ""
             if re.match(r"^\d{1,2}일$", val):
-                header_row = cell.row
-                break
+                if header_row is None:
+                    header_row = cell.row
+                if cell.row == header_row:
+                    if min_day_col is None or cell.column < min_day_col:
+                        min_day_col = cell.column
         if header_row:
             break
 
@@ -577,27 +587,41 @@ def import_nurses_from_request(filepath: str) -> list[str]:
         wb.close()
         return []
 
-    # 요일 행 건너뛰기
-    data_start = header_row + 1
-    check_row = list(ws.iter_rows(
-        min_row=header_row + 1, max_row=header_row + 1))[0]
-    for cell in check_row:
-        val = str(cell.value).strip() if cell.value else ""
-        if val in ("일", "월", "화", "수", "목", "금", "토"):
-            data_start = header_row + 2
-            break
+    # ── 이름 열 찾기 (import_requests와 동일 로직) ──
+    name_col = 1  # 기본 A열
+    for search_row in range(max(1, header_row - 1), header_row + 3):
+        for row in ws.iter_rows(min_row=search_row, max_row=search_row,
+                                max_col=(min_day_col or 5) - 1):
+            for cell in row:
+                val = str(cell.value).strip() if cell.value else ""
+                if val == "이름":
+                    name_col = cell.column
 
-    # 이름 추출
+    # ── 데이터 시작 행 찾기 (import_requests와 동일 로직) ──
+    data_start = header_row + 1
+    for check in ws.iter_rows(min_row=header_row + 1,
+                              max_row=min(header_row + 3, ws.max_row),
+                              max_col=(min_day_col or 5) + 6):
+        for cell in check:
+            val = str(cell.value).strip() if cell.value else ""
+            if val in ("이름", "일", "월", "화", "수", "목", "금", "토"):
+                data_start = check[0].row + 1
+                break
+        else:
+            continue
+        break
+
+    # ── 이름 추출 ──
     names = []
-    # stop_words = {"off", "주", "수면", "생휴", "vac", "공가", "필수", "총"}
+    stop_words = {"off", "주", "수면", "생휴", "vac", "공가", "총"}
 
     for row in ws.iter_rows(min_row=data_start):
-        cell = row[0]  # A열
-        val = str(cell.value).strip() if cell.value else ""
+        cell = row[name_col - 1] if name_col - 1 < len(row) else None
+        val = str(cell.value).strip() if cell and cell.value else ""
         if not val:
             continue
-        # if val.lower() in stop_words:
-            # break  # 집계 행 도달
+        if val.lower() in stop_words:
+            break  # 집계 행 도달
         names.append(val)
 
     wb.close()

@@ -3,7 +3,7 @@
 근무 3종: D, E, N
 # 중간근무 확장 시: D, D9, D1, 중1, 중2, E, N (7종)
 # D=주간, M(D9/D1/중1/중2)=중간, E=저녁, N=야간
-휴무 10종: 주, OFF, POFF, 법휴, 수면, 생휴, 휴가, 특휴, 공가, 경가
+휴무 11종: 주, OFF, POFF, 법휴, 수면, 생휴, 휴가, 특휴, 공가, 경가, 보수
 """
 from dataclasses import dataclass, field
 from typing import Optional
@@ -21,13 +21,13 @@ WORK_SHIFTS = ["D", "E", "N"]  # "D9", "D1", "중1", "중2" 추후 추가
 # WORK_SHIFTS = ["D", "D9", "D1", "중1", "중2", "E", "N"]  # 중간근무 포함 시
 
 # 휴무 코드
-OFF_TYPES = ["주", "OFF", "POFF", "법휴", "수면", "생휴", "휴가", "특휴", "공가", "경가"]
+OFF_TYPES = ["주", "OFF", "POFF", "법휴", "수면", "생휴", "휴가", "특휴", "공가", "경가", "보수"]
 
 # 전체 코드 (근무 + 휴무)
 ALL_CODES = WORK_SHIFTS + OFF_TYPES
 
 # 사용자 신청 휴무 (엑셀에서 읽어오는 것들)
-USER_REQUEST_CODES = WORK_SHIFTS + ["OFF", "법휴", "휴가", "특휴", "공가", "경가", "D 제외", "N 제외", "E 제외"]
+USER_REQUEST_CODES = WORK_SHIFTS + ["OFF", "법휴", "휴가", "특휴", "공가", "경가", "보수", "D 제외", "N 제외", "E 제외"]
 
 # 자동 발생 휴무 (솔버가 배정)
 AUTO_OFF_CODES = ["주", "OFF", "POFF", "수면", "생휴"]
@@ -175,18 +175,21 @@ class Request:
     code: str                       # 뭘 원하는지 
 
     def __post_init__(self):
-        # "D제외" → "D 제외", "N제외" → "N 제외" 등 통일
         self.code = self.code.strip()  # 공백 제거
+        # "D제외" → "D 제외", "N제외" → "N 제외" 등 통일
         for s in ["D", "E", "N"]:
             if self.code.replace(" ", "") == f"{s}제외":
                 self.code = f"{s} 제외"
                 break
+        # "수면(1,2월)", "수면(2월)", "수면 (3,4월)" 등 → "수면"
+        if self.code.startswith("수면"):
+            self.code = "수면"
 
     # @property : 함수인데 변수처럼 -> 사용할 때 ()가 필요 없음 request.is_hard  
     @property
     def is_hard(self) -> bool:
         """반드시 지켜야 하는 확정 요청인가?"""
-        return self.code in ("주", "법휴", "휴가", "특휴", "생휴", "수면", "공가", "경가")   # "OFF"는 소프트(S1)로 처리 — H11이 주당 2개 보장
+        return self.code in ("주", "법휴", "휴가", "특휴", "생휴", "수면", "공가", "경가", "보수")   # "OFF"는 소프트(S1)로 처리 — H11이 주당 2개 보장
 
     @property
     def is_exclude(self) -> bool:
