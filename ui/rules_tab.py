@@ -1,8 +1,8 @@
-"""Tab 3: 규칙 설정"""
+"""Tab 3: 규칙 설정 — 응급실"""
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QGroupBox, QLabel,
     QSpinBox, QCheckBox, QPushButton, QFormLayout, QMessageBox,
-    QScrollArea, QFrame,
+    QScrollArea, QFrame, QLineEdit,
 )
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QFont
@@ -15,6 +15,8 @@ class RulesTab(QWidget):
         super().__init__()
         self.dm = data_manager
         self.rules = Rules()
+        self._year = 2026
+        self._month = 1
         self._init_ui()
         self._load_rules()
 
@@ -27,98 +29,120 @@ class RulesTab(QWidget):
         layout = QVBoxLayout(container)
         layout.setSpacing(16)
 
-        # ── 인원 배치 ──
-        staff_group = QGroupBox("인원 배치")
+        # ── 일일 인원 배치 ──
+        staff_group = QGroupBox("일일 최소 인원")
         staff_layout = QHBoxLayout(staff_group)
-
-        # 평일
-        weekday_box = QVBoxLayout()
-        weekday_box.addWidget(QLabel("평일 최소 인원"))
-        self.wd_day = self._spin(5, "Day")
-        self.wd_eve = self._spin(5, "Evening")
-        self.wd_night = self._spin(2, "Night")
-        for label, spin in [("Day:", self.wd_day), ("Evening:", self.wd_eve), ("Night:", self.wd_night)]:
+        self.daily_d = self._spin(7)
+        self.daily_e = self._spin(8)
+        self.daily_n = self._spin(7)
+        # self.daily_m = self._spin(0)  # 중간근무 추가 시
+        for label, spin in [
+            ("D:", self.daily_d),
+            # ("M (중간):", self.daily_m),  # 중간근무 추가 시
+            ("E:", self.daily_e),
+            ("N:", self.daily_n),
+        ]:
             row = QHBoxLayout()
             lbl = QLabel(label)
-            lbl.setFixedWidth(70)
+            lbl.setFixedWidth(140)
             row.addWidget(lbl)
             row.addWidget(spin)
-            weekday_box.addLayout(row)
-        staff_layout.addLayout(weekday_box)
-
-        # 구분선
-        line = QFrame()
-        line.setFrameShape(QFrame.Shape.VLine)
-        line.setStyleSheet("color: #cccccc;")
-        staff_layout.addWidget(line)
-
-        # 주말
-        weekend_box = QVBoxLayout()
-        weekend_box.addWidget(QLabel("주말 최소 인원"))
-        self.we_day = self._spin(4, "Day")
-        self.we_eve = self._spin(4, "Evening")
-        self.we_night = self._spin(2, "Night")
-        for label, spin in [("Day:", self.we_day), ("Evening:", self.we_eve), ("Night:", self.we_night)]:
-            row = QHBoxLayout()
-            lbl = QLabel(label)
-            lbl.setFixedWidth(70)
-            row.addWidget(lbl)
-            row.addWidget(spin)
-            weekend_box.addLayout(row)
-        staff_layout.addLayout(weekend_box)
-
+            row.addWidget(QLabel("명"))
+            row.addStretch()
+            staff_layout.addLayout(row)
         layout.addWidget(staff_group)
 
-        # ── 금지 패턴 ──
-        ban_group = QGroupBox("금지 패턴")
-        ban_layout = QVBoxLayout(ban_group)
-        self.ban_nd = QCheckBox("Night → Day 금지 (야간 다음날 주간 불가)")
-        self.ban_ne = QCheckBox("Night → Evening 금지 (야간 다음날 저녁 불가)")
-        self.ban_ed = QCheckBox("Evening → Day 금지 (저녁 다음날 주간 불가)")
-        self.ban_nd.setChecked(True)
-        self.ban_ne.setChecked(True)
-        self.ban_ed.setChecked(True)
-        ban_layout.addWidget(self.ban_nd)
-        ban_layout.addWidget(self.ban_ne)
-        ban_layout.addWidget(self.ban_ed)
-        layout.addWidget(ban_group)
-
-        # ── 연속 제한 ──
-        consec_group = QGroupBox("연속 제한")
+        # ── 근무 순서 / 연속 제한 ──
+        consec_group = QGroupBox("근무 순서 / 연속 제한")
         consec_layout = QFormLayout(consec_group)
+
+        self.ban_reverse = QCheckBox("역순 금지 (D→중간→E→N 순서만 허용)")
+        self.ban_reverse.setChecked(True)
+        consec_layout.addRow(self.ban_reverse)
+
         self.max_consec_work = self._spin(5)
-        self.max_consec_night = self._spin(3)
-        self.night_off_after = self._spin(1)
-        consec_layout.addRow("최대 연속 근무일:", self._spin_row(self.max_consec_work, "일"))
-        consec_layout.addRow("최대 연속 야간:", self._spin_row(self.max_consec_night, "일"))
-        consec_layout.addRow("야간 연속 후 OFF:", self._spin_row(self.night_off_after, "일"))
+        consec_layout.addRow("최대 연속 근무:", self._spin_row(self.max_consec_work, "일"))
+
+        self.max_consec_n = self._spin(3)
+        consec_layout.addRow("최대 연속 N:", self._spin_row(self.max_consec_n, "개"))
+
+        self.off_after_2n = self._spin(2)
+        consec_layout.addRow("N 2연속 후 휴무:", self._spin_row(self.off_after_2n, "일"))
+
+        self.max_n_month = self._spin(6)
+        consec_layout.addRow("월 최대 N:", self._spin_row(self.max_n_month, "개"))
+
         layout.addWidget(consec_group)
 
-        # ── 휴무 설정 ──
-        off_group = QGroupBox("휴무 설정")
+        # ── 휴무 ──
+        off_group = QGroupBox("휴무")
         off_layout = QFormLayout(off_group)
-        self.min_off = self._spin(8)
-        self.max_off = self._spin(20)
-        self.max_consec_off = self._spin(5)
-        off_layout.addRow("월 최소 휴무일:", self._spin_row(self.min_off, "일"))
-        off_layout.addRow("월 최대 휴무일:", self._spin_row(self.max_off, "일"))
-        off_layout.addRow("최대 연속 휴무:", self._spin_row(self.max_consec_off, "일"))
+
+        self.min_weekly_off = self._spin(2)
+        off_layout.addRow("주당 최소 휴무:", self._spin_row(self.min_weekly_off, "일"))
+
         layout.addWidget(off_group)
 
-        # ── 팀 구성 ──
-        team_group = QGroupBox("팀 구성 규칙")
-        team_layout = QVBoxLayout(team_group)
-        self.senior_all = QCheckBox("모든 근무에 숙련자(숙련도 3 이상) 1명 이상 필수")
-        self.ban_newbie = QCheckBox("신규(숙련도 1) 끼리 같은 야간 배정 금지")
-        self.senior_all.setChecked(True)
-        self.ban_newbie.setChecked(True)
-        team_layout.addWidget(self.senior_all)
-        team_layout.addWidget(self.ban_newbie)
-        layout.addWidget(team_group)
+        # ── 직급 ──
+        grade_group = QGroupBox("직급 제약")
+        grade_layout = QFormLayout(grade_group)
 
-        # ── 저장 버튼 ──
+        self.min_chief = self._spin(1)
+        grade_layout.addRow("매 근무 책임 최소:", self._spin_row(self.min_chief, "명"))
+
+        self.min_senior = self._spin(2)
+        grade_layout.addRow("매 근무 책임+서브차지 최소:", self._spin_row(self.min_senior, "명"))
+
+        self.max_junior = self._spin(3)
+        grade_layout.addRow("매 근무 일반 최대 (권고):", self._spin_row(self.max_junior, "명"))
+
+        layout.addWidget(grade_group)
+
+        # ── 특수 조건 ──
+        special_group = QGroupBox("특수 조건")
+        special_layout = QFormLayout(special_group)
+
+        self.preg_interval = self._spin(4)
+        special_layout.addRow("임산부 연속 근무 제한:", self._spin_row(self.preg_interval, "일"))
+
+        self.menstrual = QCheckBox("생리휴무 (남자 제외, 월 1개)")
+        self.menstrual.setChecked(True)
+        special_layout.addRow(self.menstrual)
+
+        layout.addWidget(special_group)
+
+        # ── 수면 ──
+        sleep_group = QGroupBox("수면 휴무 발생 조건")
+        sleep_layout = QFormLayout(sleep_group)
+
+        self.sleep_monthly = self._spin(7)
+        sleep_layout.addRow("당월 N ≥:", self._spin_row(self.sleep_monthly, "개 → 수면 발생"))
+
+        self.sleep_bimonthly = self._spin(11)
+        sleep_layout.addRow("2개월 합산 N ≥:", self._spin_row(self.sleep_bimonthly, "개 → 수면 발생"))
+
+        layout.addWidget(sleep_group)
+
+        # ── 법정공휴일 ──
+        holiday_group = QGroupBox("법정공휴일 (해당 월 날짜, 쉼표 구분)")
+        holiday_layout = QHBoxLayout(holiday_group)
+        self.holidays_input = QLineEdit()
+        self.holidays_input.setPlaceholderText("예: 1, 3, 15")
+        self.holidays_input.setMinimumWidth(300)
+        holiday_layout.addWidget(self.holidays_input)
+
+        auto_btn = QPushButton("자동 감지")
+        auto_btn.setToolTip("holidays 패키지로 해당 월 공휴일 자동 입력")
+        auto_btn.clicked.connect(self._auto_detect_holidays)
+        holiday_layout.addWidget(auto_btn)
+
+        holiday_layout.addStretch()
+        layout.addWidget(holiday_group)
+
+        # ── 버튼 ──
         btn_layout = QHBoxLayout()
         btn_layout.addStretch()
+
         save_btn = QPushButton("규칙 저장")
         save_btn.clicked.connect(self._save_rules)
         btn_layout.addWidget(save_btn)
@@ -127,8 +151,8 @@ class RulesTab(QWidget):
         reset_btn.setObjectName("secondaryBtn")
         reset_btn.clicked.connect(self._reset_rules)
         btn_layout.addWidget(reset_btn)
-        layout.addLayout(btn_layout)
 
+        layout.addLayout(btn_layout)
         layout.addStretch()
 
         scroll.setWidget(container)
@@ -136,11 +160,11 @@ class RulesTab(QWidget):
         main_layout.setContentsMargins(0, 0, 0, 0)
         main_layout.addWidget(scroll)
 
-    def _spin(self, default, suffix=""):
+    def _spin(self, default):
         spin = QSpinBox()
         spin.setRange(0, 31)
         spin.setValue(default)
-        spin.setFixedWidth(70)
+        spin.setFixedWidth(80)
         return spin
 
     def _spin_row(self, spin, unit):
@@ -158,43 +182,57 @@ class RulesTab(QWidget):
 
     def _apply_to_ui(self):
         r = self.rules
-        self.wd_day.setValue(r.weekday_min_day)
-        self.wd_eve.setValue(r.weekday_min_evening)
-        self.wd_night.setValue(r.weekday_min_night)
-        self.we_day.setValue(r.weekend_min_day)
-        self.we_eve.setValue(r.weekend_min_evening)
-        self.we_night.setValue(r.weekend_min_night)
-        self.ban_nd.setChecked(r.ban_night_to_day)
-        self.ban_ne.setChecked(r.ban_night_to_evening)
-        self.ban_ed.setChecked(r.ban_evening_to_day)
+        self.daily_d.setValue(r.daily_D)
+        self.daily_e.setValue(r.daily_E)
+        self.daily_n.setValue(r.daily_N)
+        self.ban_reverse.setChecked(r.ban_reverse_order)
         self.max_consec_work.setValue(r.max_consecutive_work)
-        self.max_consec_night.setValue(r.max_consecutive_night)
-        self.night_off_after.setValue(r.night_off_after)
-        self.min_off.setValue(r.min_monthly_off)
-        self.max_off.setValue(r.max_monthly_off)
-        self.max_consec_off.setValue(r.max_consecutive_off)
-        self.senior_all.setChecked(r.senior_required_all)
-        self.ban_newbie.setChecked(r.ban_newbie_pair_night)
+        self.max_consec_n.setValue(r.max_consecutive_N)
+        self.off_after_2n.setValue(r.off_after_2N)
+        self.max_n_month.setValue(r.max_N_per_month)
+        self.min_weekly_off.setValue(r.min_weekly_off)
+        self.min_chief.setValue(r.min_chief_per_shift)
+        self.min_senior.setValue(r.min_senior_per_shift)
+        self.max_junior.setValue(r.max_junior_per_shift)
+        self.preg_interval.setValue(r.pregnant_poff_interval)
+        self.menstrual.setChecked(r.menstrual_leave)
+        self.sleep_monthly.setValue(r.sleep_N_monthly)
+        self.sleep_bimonthly.setValue(r.sleep_N_bimonthly)
+        if r.public_holidays:
+            self.holidays_input.setText(", ".join(str(d) for d in r.public_holidays))
 
     def _sync_from_ui(self):
+        # 공휴일 파싱
+        holidays = []
+        text = self.holidays_input.text().strip()
+        if text:
+            for part in text.split(","):
+                part = part.strip()
+                try:
+                    d = int(part)
+                    if 1 <= d <= 31:
+                        holidays.append(d)
+                except ValueError:
+                    pass
+
         self.rules = Rules(
-            weekday_min_day=self.wd_day.value(),
-            weekday_min_evening=self.wd_eve.value(),
-            weekday_min_night=self.wd_night.value(),
-            weekend_min_day=self.we_day.value(),
-            weekend_min_evening=self.we_eve.value(),
-            weekend_min_night=self.we_night.value(),
-            ban_night_to_day=self.ban_nd.isChecked(),
-            ban_night_to_evening=self.ban_ne.isChecked(),
-            ban_evening_to_day=self.ban_ed.isChecked(),
+            daily_D=self.daily_d.value(),
+            daily_E=self.daily_e.value(),
+            daily_N=self.daily_n.value(),
+            ban_reverse_order=self.ban_reverse.isChecked(),
             max_consecutive_work=self.max_consec_work.value(),
-            max_consecutive_night=self.max_consec_night.value(),
-            night_off_after=self.night_off_after.value(),
-            min_monthly_off=self.min_off.value(),
-            max_monthly_off=self.max_off.value(),
-            max_consecutive_off=self.max_consec_off.value(),
-            senior_required_all=self.senior_all.isChecked(),
-            ban_newbie_pair_night=self.ban_newbie.isChecked(),
+            max_consecutive_N=self.max_consec_n.value(),
+            off_after_2N=self.off_after_2n.value(),
+            max_N_per_month=self.max_n_month.value(),
+            min_weekly_off=self.min_weekly_off.value(),
+            min_chief_per_shift=self.min_chief.value(),
+            min_senior_per_shift=self.min_senior.value(),
+            max_junior_per_shift=self.max_junior.value(),
+            pregnant_poff_interval=self.preg_interval.value(),
+            menstrual_leave=self.menstrual.isChecked(),
+            sleep_N_monthly=self.sleep_monthly.value(),
+            sleep_N_bimonthly=self.sleep_bimonthly.value(),
+            public_holidays=holidays,
         )
 
     def _save_rules(self):
@@ -214,3 +252,35 @@ class RulesTab(QWidget):
     def get_rules(self) -> Rules:
         self._sync_from_ui()
         return self.rules
+
+    def set_year_month(self, year: int, month: int):
+        """설정 탭에서 연월 변경 시 호출"""
+        self._year = year
+        self._month = month
+
+    def _auto_detect_holidays(self):
+        """holidays 패키지로 해당 월 공휴일 자동 감지"""
+        try:
+            from engine.kr_holidays import get_holidays_for_month
+            hols = get_holidays_for_month(self._year, self._month)
+            if hols:
+                days_str = ", ".join(str(d) for d, _ in hols)
+                names = "\n".join(f"  {d}일: {name}" for d, name in hols)
+                self.holidays_input.setText(days_str)
+                QMessageBox.information(
+                    self, "공휴일 자동 감지",
+                    f"{self._year}년 {self._month}월 공휴일:\n{names}\n\n"
+                    "필요시 직접 수정 가능합니다."
+                )
+            else:
+                self.holidays_input.clear()
+                QMessageBox.information(
+                    self, "공휴일 자동 감지",
+                    f"{self._year}년 {self._month}월에는 공휴일이 없습니다."
+                )
+        except ImportError:
+            QMessageBox.warning(
+                self, "패키지 미설치",
+                "holidays 패키지가 필요합니다.\n\n"
+                "pip install holidays\n또는\nuv add holidays"
+            )

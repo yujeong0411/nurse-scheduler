@@ -1,43 +1,116 @@
-"""색상, 스타일 상수"""
-from PyQt6.QtGui import QColor
+"""색상, 스타일 상수 — 응급실 간호사 근무표"""
+from PyQt6.QtGui import QColor, QPen
+from PyQt6.QtWidgets import QStyledItemDelegate
 
-# 근무 타입별 색상
+# ══════════════════════════════════════════
+# 주 구분선 델리게이트
+# ══════════════════════════════════════════
+
+class WeekSeparatorDelegate(QStyledItemDelegate):
+    """일요일 컬럼 왼쪽에 굵은 구분선"""
+
+    def __init__(self, sunday_cols: set[int], parent=None):
+        super().__init__(parent)
+        self.sunday_cols = sunday_cols
+
+    def paint(self, painter, option, index):
+        super().paint(painter, option, index)
+        if index.column() in self.monday_cols:
+            painter.save()
+            pen = QPen(QColor(80, 80, 80))
+            pen.setWidth(2)
+            painter.setPen(pen)
+            painter.drawLine(
+                option.rect.left(), option.rect.top(),
+                option.rect.left(), option.rect.bottom(),
+            )
+            painter.restore()
+
+# ══════════════════════════════════════════
+# 근무/휴무 배경 색상 (17종 + OFF)
+# ══════════════════════════════════════════
 SHIFT_COLORS = {
-    "D":   QColor(218, 238, 243),   # 연파랑
-    "E":   QColor(253, 233, 217),   # 연주황
-    "N":   QColor(228, 223, 236),   # 연보라
-    "OFF": QColor(216, 228, 188),   # 연초록
-    "연차": QColor(255, 153, 153),  # 연빨강
+    # 근무 (3종, 중간근무 추가 시 7종)
+    # "D":   QColor(234, 209, 220),
+    # "D9":  QColor(180, 225, 232),   # 중간 계열
+    # "D1":  QColor(180, 225, 232),   # 중간 계열
+    # "중1":  QColor(253, 235, 208),  # 중간 계열
+    # "중2":  QColor(253, 235, 208),  # 중간 계열
+    # "E":   QColor(253, 233, 217),
+    # "N":   QColor(228, 223, 236),
+    # 휴무 (10종)
+    "OFF":  QColor(252, 251, 146),
+    "주":   QColor(252, 251, 146),
+    "법휴": QColor(252, 251, 146),
+    "생휴":   QColor(252, 251, 146),
+    "수면": QColor(252, 251, 146),
+    "POFF": QColor(252, 251, 146),
+    "휴가":   QColor(252, 251, 146),
+    "특휴": QColor(252, 251, 146),
+    "공가":   QColor(252, 251, 146),
+    "경가":   QColor(252, 251, 146),
 }
 
 SHIFT_TEXT_COLORS = {
-    "D":   QColor(46, 117, 182),    # 파랑
-    "E":   QColor(197, 90, 17),     # 주황
-    "N":   QColor(112, 48, 160),    # 보라
-    "OFF": QColor(84, 130, 53),     # 초록
-    "연차": QColor(204, 0, 0),      # 빨강
+    "D":   QColor(7, 117, 250),
+    # "D9":  QColor(46, 117, 182),   # 중간 계열
+    # "D1":  QColor(46, 117, 182),   # 중간 계열
+    # "중1":  QColor(191, 143, 0),   # 중간 계열
+    # "중2":  QColor(191, 143, 0),   # 중간 계열
+    "E":   QColor(209, 120, 4),
+    "N":   QColor(214, 21, 6),
+    # "OFF": QColor(214, 21, 6),
+    # "주":   QColor(214, 21, 6),
+    # "법휴": QColor(214, 21, 6),
+    # "생휴":   QColor(204, 0, 0),
+    # "수면": QColor(214, 21, 6),
+    # "POFF": QColor(214, 21, 6),
+    # "휴가":   QColor(148, 84, 13), 
+    # "특휴": QColor(214, 21, 6),
+    # "공가":   QColor(156, 87, 0),
+    # "경가":   QColor(156, 87, 0),
 }
 
-WEEKEND_BG = QColor(242, 242, 242)         # 주말 배경
-VIOLATION_BG = QColor(255, 200, 200)       # 위반 배경
-VIOLATION_BORDER = QColor(255, 0, 0)       # 위반 테두리
-HEADER_BG = QColor(0, 57, 118)            # 헤더 배경 (진파랑)
-HEADER_TEXT = QColor(255, 255, 255)        # 헤더 텍스트 (흰색)
-SHORTAGE_BG = QColor(255, 220, 220)        # 인원부족 배경
+WEEKEND_BG = QColor(242, 242, 242)
+VIOLATION_BG = QColor(255, 200, 200)
+HEADER_BG = QColor(1, 57, 118)
+HEADER_TEXT = QColor(255, 255, 255)
+SHORTAGE_BG = QColor(255, 220, 220)
 
-# 근무 코드 목록
-SHIFT_TYPES = ["", "D", "E", "N", "OFF"]
-REQUEST_CODES = ["", "OFF", "연차", "D", "E", "N", "D!", "E!", "N!"]
-SKILL_LEVELS = {1: "신규", 2: "일반", 3: "주임", 4: "책임"}
-FIXED_SHIFT_OPTIONS = ["없음", "D", "E", "N"]
+# ══════════════════════════════════════════
+# 드롭다운 옵션
+# ══════════════════════════════════════════
+
+# 요청사항 탭 코드 (빈칸 = 자동배정)
+REQUEST_CODES = [
+    "", "D", "E", "N",
+    # "D9", "D1", "중1", "중2",  # 중간근무 추가 시
+    "OFF", "주", "법휴", "생휴", "수면", "휴가", "특휴", "공가", "경가",
+    "D 제외", "E 제외", "N 제외",
+    # "M 제외",  # 중간근무 추가 시
+]
+
+# 결과 탭 수동 수정용
+SHIFT_TYPES = [
+    "D", "E", "N",
+    # "D9", "D1", "중1", "중2",  # 중간근무 추가 시
+    "OFF", "주", "법휴", "생휴", "수면", "POFF", "휴가", "특휴", "공가", "경가",
+]
+
+# 간호사 속성 옵션
+ROLE_OPTIONS = [
+    "", "책임만", "외상", "혼자관찰", "혼자 관찰", "혼자관찰불가",
+    "격리구역", "급성구역", "준급성"
+]
+GRADE_OPTIONS = ["", "책임", "서브차지"]
+WEEKDAY_OPTIONS = ["없음", "월", "화", "수", "목", "금", "토", "일"]
 
 # 폰트
 FONT_FAMILY = "맑은 고딕"
-FONT_SIZE = 10
-FONT_SIZE_SMALL = 9
-FONT_SIZE_HEADER = 11
 
-# 앱 스타일시트  #003976
+# ══════════════════════════════════════════
+# 앱 스타일시트
+# ══════════════════════════════════════════
 APP_STYLE = """
 QMainWindow {
     background-color: #f5f5f5;
@@ -58,13 +131,13 @@ QTabBar::tab {
 QTabBar::tab:selected {
     background: white;
     font-weight: bold;
-    color: #003976;
+    color: #013976;
 }
 QTabBar::tab:hover {
     background: #d0d8e8;
 }
 QPushButton {
-    background-color: #003976;
+    background-color: #013976;
     color: white;
     border: none;
     padding: 8px 16px;
@@ -98,15 +171,8 @@ QTableWidget {
 QTableWidget::item {
     padding: 4px;
 }
-QTableWidget::item:hover {
-    background-color: #E8F0FE;
-}
-QTableWidget::item:selected {
-    background-color: #D0E0F0;
-    color: black;
-}
 QHeaderView::section {
-    background-color: #003976;
+    background-color: #013976;
     color: white;
     padding: 6px;
     border: 1px solid #1d3a6a;
@@ -117,13 +183,26 @@ QHeaderView::section {
 QLabel {
     font-family: '맑은 고딕';
 }
-QSpinBox, QComboBox {
+QComboBox {
     font-family: '맑은 고딕';
-    font-size: 11pt;
-    padding: 4px;
+    font-size: 10pt;
+    padding: 0.5px 0.5px 0.5px 4px; /* 상우하좌: 여백을 줄여 텍스트 공간 확보 */
+    margin: 0px;
+}
+QComboBox QAbstractItemView {
+    min-width: 62px; /* 리스트의 최소 너비를 확보하여 텍스트가 잘리지 않게 함 */
+    background-color: white;
+    selection-background-color: #d0d8e8;
+    padding: 2px;
+}
+QSpinBox {
+    font-family: '맑은 고딕';
+    font-size: 10pt;
+    padding: 4px 6px;
+    min-height: 28px;
 }
 QSpinBox::up-button, QSpinBox::down-button {
-    width: 20px;
+    min-width: 20px;
 }
 QGroupBox {
     font-family: '맑은 고딕';
@@ -138,7 +217,7 @@ QGroupBox::title {
     subcontrol-origin: margin;
     left: 12px;
     padding: 0 4px;
-    color: #003976;
+    color: #013976;
 }
 QCheckBox {
     font-family: '맑은 고딕';

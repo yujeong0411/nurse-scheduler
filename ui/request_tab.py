@@ -1,4 +1,4 @@
-"""Tab 2: 요청사항 달력"""
+"""Tab 2: 요청사항 달력 — 응급실"""
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QTableWidget,
     QTableWidgetItem, QComboBox, QPushButton, QHeaderView,
@@ -8,21 +8,10 @@ from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QColor, QFont, QBrush
 from engine.models import Nurse, Request, DataManager
 from ui.styles import (
-    REQUEST_CODES, WEEKEND_BG, FONT_FAMILY, SHIFT_COLORS, SHIFT_TEXT_COLORS,
+    REQUEST_CODES, SHIFT_COLORS, SHIFT_TEXT_COLORS,
+    WEEKEND_BG, FONT_FAMILY,
 )
 import calendar
-
-
-REQUEST_COLORS = {
-    "OFF": QColor(180, 198, 231),
-    "연차": QColor(255, 153, 153),
-    "D":   QColor(189, 215, 238),
-    "E":   QColor(255, 214, 153),
-    "N":   QColor(226, 191, 255),
-    "D!":  QColor(146, 195, 220),
-    "E!":  QColor(255, 185, 100),
-    "N!":  QColor(200, 160, 230),
-}
 
 
 class RequestTab(QWidget):
@@ -41,9 +30,9 @@ class RequestTab(QWidget):
 
         # 상단 정보
         top = QHBoxLayout()
-        self.title_label = QLabel("2026년 3월 개인 요청사항")
+        self.title_label = QLabel("2026년 2월 개인 요청사항")
         self.title_label.setFont(QFont(FONT_FAMILY, 13, QFont.Weight.Bold))
-        self.title_label.setStyleSheet("color: #2F5496;")
+        self.title_label.setStyleSheet("color: #013976;")
         top.addWidget(self.title_label)
         top.addStretch()
 
@@ -52,23 +41,6 @@ class RequestTab(QWidget):
         top.addWidget(save_btn)
 
         layout.addLayout(top)
-
-        # 범례
-        legend = QGroupBox("입력 코드")
-        legend_layout = QHBoxLayout(legend)
-        codes = [
-            ("(빈칸)", "자동배정", "#ffffff"),
-            ("OFF", "희망휴무", "#B4C6E7"),
-            ("연차", "확정휴무", "#FF9999"),
-            ("D/E/N", "희망근무", "#BDD7EE"),
-            ("D!/E!/N!", "고정(필수)", "#92C3DC"),
-        ]
-        for code, desc, color in codes:
-            lbl = QLabel(f"  {code} = {desc}  ")
-            lbl.setStyleSheet(f"background: {color}; padding: 4px 8px; border-radius: 3px; font-size: 9pt;")
-            legend_layout.addWidget(lbl)
-        legend_layout.addStretch()
-        layout.addWidget(legend)
 
         # 달력 테이블
         self.table = QTableWidget()
@@ -82,8 +54,6 @@ class RequestTab(QWidget):
         self.year = year
         self.month = month
         self.title_label.setText(f"{year}년 {month}월 개인 요청사항")
-
-        # 기존 요청 불러오기
         self.requests = self.dm.load_requests(year, month)
         self._rebuild_table()
 
@@ -103,17 +73,14 @@ class RequestTab(QWidget):
             headers.append(f"{d}\n({weekday_names[wd]})")
         self.table.setHorizontalHeaderLabels(headers)
 
-        # 헤더 스타일
         header = self.table.horizontalHeader()
         header.setSectionResizeMode(0, QHeaderView.ResizeMode.Fixed)
         self.table.setColumnWidth(0, 80)
         for d in range(1, num_days + 1):
             header.setSectionResizeMode(d, QHeaderView.ResizeMode.Fixed)
-            self.table.setColumnWidth(d, 52)
+            self.table.setColumnWidth(d, 56)
 
-        self.table.setRowHeight(0, 32)
-
-        # 요청 맵 구성
+        # 요청 맵
         req_map = {}
         for r in self.requests:
             req_map[(r.nurse_id, r.day)] = r.code
@@ -131,7 +98,6 @@ class RequestTab(QWidget):
                 code = req_map.get((nurse.id, d), "")
                 wd = calendar.weekday(self.year, self.month, d)
 
-                # 콤보박스
                 combo = QComboBox()
                 combo.addItems(REQUEST_CODES)
                 combo.setStyleSheet("font-size: 9pt; border: none;")
@@ -140,16 +106,7 @@ class RequestTab(QWidget):
                     combo.setCurrentText(code)
 
                 # 배경색
-                if code and code in REQUEST_COLORS:
-                    color = REQUEST_COLORS[code]
-                    combo.setStyleSheet(
-                        f"font-size: 9pt; border: none; "
-                        f"background-color: rgb({color.red()},{color.green()},{color.blue()});"
-                    )
-                elif wd >= 5:
-                    combo.setStyleSheet(
-                        f"font-size: 9pt; border: none; background-color: #f2f2f2;"
-                    )
+                self._apply_combo_style(combo, code, wd)
 
                 combo.currentTextChanged.connect(
                     lambda text, r=row, c=d: self._on_request_changed(r, c, text)
@@ -160,29 +117,35 @@ class RequestTab(QWidget):
 
         self._building = False
 
+    def _apply_combo_style(self, combo, code, weekday):
+        """콤보박스에 코드에 맞는 색상 적용"""
+        base = "font-size: 9pt; border: none; "
+        if code and code in SHIFT_COLORS:
+            c = SHIFT_COLORS[code]
+            combo.setStyleSheet(
+                base + f"background-color: rgb({c.red()},{c.green()},{c.blue()});"
+            )
+        elif weekday >= 5:
+            combo.setStyleSheet(base + "background-color: #f2f2f2;")
+        else:
+            combo.setStyleSheet(base)
+
     def _on_request_changed(self, row, day, code):
         if self._building or row >= len(self.nurses):
             return
         nurse = self.nurses[row]
 
-        # 콤보 스타일 업데이트
+        # 스타일 업데이트
         combo = self.table.cellWidget(row, day)
         if combo:
-            if code and code in REQUEST_COLORS:
-                color = REQUEST_COLORS[code]
-                combo.setStyleSheet(
-                    f"font-size: 9pt; border: none; "
-                    f"background-color: rgb({color.red()},{color.green()},{color.blue()});"
-                )
-            else:
-                wd = calendar.weekday(self.year, self.month, day)
-                if wd >= 5:
-                    combo.setStyleSheet("font-size: 9pt; border: none; background-color: #f2f2f2;")
-                else:
-                    combo.setStyleSheet("font-size: 9pt; border: none;")
+            wd = calendar.weekday(self.year, self.month, day)
+            self._apply_combo_style(combo, code, wd)
 
         # 요청 리스트 업데이트
-        self.requests = [r for r in self.requests if not (r.nurse_id == nurse.id and r.day == day)]
+        self.requests = [
+            r for r in self.requests
+            if not (r.nurse_id == nurse.id and r.day == day)
+        ]
         if code:
             self.requests.append(Request(nurse_id=nurse.id, day=day, code=code))
 

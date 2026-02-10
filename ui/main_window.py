@@ -55,6 +55,10 @@ class MainWindow(QMainWindow):
             self.request_tab.refresh(nurses, year, month)
             self.statusBar().showMessage(f"{year}년 {month}월 요청사항 편집 중")
 
+        elif index == 2:  # 규칙 탭
+            year, month = self.setup_tab.get_year_month()
+            self.rules_tab.set_year_month(year, month)
+
         elif index == 3:  # 결과 탭
             nurses = self.setup_tab.get_nurses()
             requests = self.request_tab.get_requests()

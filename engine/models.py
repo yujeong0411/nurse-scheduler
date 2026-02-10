@@ -1,6 +1,8 @@
 """데이터 모델 정의 — 응급실 간호사 근무표
 
-근무 7종: D, D9, D1, 중1, 중2, E, N
+근무 3종: D, E, N
+# 중간근무 확장 시: D, D9, D1, 중1, 중2, E, N (7종)
+# D=주간, M(D9/D1/중1/중2)=중간, E=저녁, N=야간
 휴무 10종: 주, OFF, POFF, 법휴, 수면, 생휴, 휴가, 특휴, 공가, 경가
 """
 from dataclasses import dataclass, field
@@ -15,7 +17,8 @@ import calendar
 # ══════════════════════════════════════════
 
 # 근무 코드
-WORK_SHIFTS = ["D", "D9", "D1", "중1", "중2", "E", "N"]
+WORK_SHIFTS = ["D", "E", "N"]  # "D9", "D1", "중1", "중2" 추후 추가
+# WORK_SHIFTS = ["D", "D9", "D1", "중1", "중2", "E", "N"]  # 중간근무 포함 시
 
 # 휴무 코드
 OFF_TYPES = ["주", "OFF", "POFF", "법휴", "수면", "생휴", "휴가", "특휴", "공가", "경가"]
@@ -31,7 +34,7 @@ AUTO_OFF_CODES = ["주", "OFF", "POFF", "수면", "생휴"]
 
 # 휴무 배정 우선순위 (솔버가 이 순서로 배정)
 # 주휴/OFF 먼저 → 생/수면 그 다음
-OFF_PRIORITY = ["주", "OFF", "생휴", "수면", "POFF"]
+OFF_PRIORITY = ["주", "OFF", "생휴", "수면", "POFF", "공가", "경가"]
 
 # 수면 계산용 2개월 페어(고정)
 # 1-2월, 3-4월, 5-6월, 7-8월, 9-10월, 11-12월
@@ -67,16 +70,16 @@ def sleep_expires_month(month: int) -> int:
     return second
 
 # 근무 순서 레벨 (역순 금지: 높은 → 낮은 불가)
-# D → D9,D1,중1,중2 → E → N
+# D → E → N  (중간근무 추가 시: D → M → E → N)
 SHIFT_ORDER = {
     "D": 1,
-    "D9": 2, "D1": 2, "중1": 2, "중2": 2,
-    "E": 3,
-    "N": 4,
+    # "D9": 2, "D1": 2, "중1": 2, "중2": 2,  # 중간 계열 (M)
+    "E": 2,   # → 3 when 중간근무 추가
+    "N": 3,   # → 4 when 중간근무 추가
 }
 
 # 역할(비고1) 목록
-ROLES = ["", "책임만", "외상", "혼자 관찰불가", "혼자 관찰", "급성구역", "준급성", "소아"]
+ROLES = ["", "책임만", "외상", "혼자 관찰불가", "혼자 관찰", "급성구역", "준급성", "격리구역"]
 
 # 직급(비고2) 목록
 GRADES = ["", "책임", "서브차지"]
@@ -89,7 +92,7 @@ ROLE_TIERS = [
     ({"외상", "혼자 관찰불가"}, 1, 2, 1),
     ({"외상", "혼자 관찰불가", "혼자 관찰"}, 2, 2, 2),
     ({"외상", "혼자 관찰불가", "혼자 관찰", "준급성", "급성구역"}, 3, 3, 3),
-    ({"외상", "혼자 관찰불가", "혼자 관찰", "준급성", "급성구역", "소아"}, 4, 4, 4),
+    ({"외상", "혼자 관찰불가", "혼자 관찰", "준급성", "급성구역", "격리구역"}, 4, 4, 4),
 ]
 
 
@@ -100,6 +103,7 @@ ROLE_TIERS = [
 # @dataclass 사용 시 __init__이 자동 생성
 @dataclass
 class Nurse:
+    """간호사"""
     id: int
     name: str
 
@@ -120,9 +124,10 @@ class Nurse:
     fixed_weekly_off: Optional[int] = None
 
     # 휴가/수면 관련
-    vacation_days: int = 0      # 잔여 연차(휴가) 일수
-    prev_month_N: int = 0       # 전월 N 횟수 (짝수월에서만 사용: 수면 2개월 합산용)
-    pending_sleep: bool = False # 전월(홀수월)에서 발생한 미사용 수면 (짝수월에서만 유효)
+    vacation_days: int = 0       # 잔여 휴가 일수
+    prev_month_N: int = 0        # 전월 N 횟수 (짝수월에서만 사용: 수면 2개월 합산용)
+    pending_sleep: bool = False  # 전월(홀수월)에서 발생한 미사용 수면 (짝수월에서만 유효)
+    menstrual_used: bool = False # 이번달 생휴 이미 사용 여부
 
     note: str = ""
 
@@ -140,6 +145,7 @@ class Nurse:
             "vacation_days": self.vacation_days,
             "prev_month_N": self.prev_month_N,
             "pending_sleep": self.pending_sleep,
+            "menstrual_used": self.menstrual_used,
             "note": self.note,
         }
 
@@ -148,7 +154,7 @@ class Nurse:
     def from_dict(cls, d):
         """복원용"""
         valid = {"id", "name", "role", "grade", "is_pregnant", "is_male",
-                 "is_4day_week", "fixed_weekly_off",  "vacation_days", "prev_month_N", "pending_sleep", "note"}
+                 "is_4day_week", "fixed_weekly_off",  "vacation_days", "prev_month_N", "pending_sleep",  "menstrual_used", "note"}
         filtered = {k: v for k, v in d.items() if k in valid}
         return cls(**filtered)
 
@@ -158,7 +164,7 @@ class Request:
     """개인 요청 1건
 
     code 종류:
-      근무 희망: D, E, N, D9, D1, 중1, 중2
+      근무 희망: D, E, N, (D9, D1, 중1, 중2)
       휴무 확정: 법휴, 휴, 특휴, 공, 경
       휴무 희망: OFF
       제외 요청: D 제외, E 제외, N 제외
@@ -180,7 +186,7 @@ class Request:
     @property
     def is_hard(self) -> bool:
         """반드시 지켜야 하는 확정 요청인가?"""
-        return self.code in ("주", "OFF", "생휴", "수면", "공가", "경가")   # fixed_weekly_off가 있지만 예방차원에서 "주"추가
+        return self.code in ("주", "법휴", "휴가", "특휴", "생휴", "수면", "공가", "경가")   # "OFF"는 소프트(S1)로 처리 — H11이 주당 2개 보장
 
     @property
     def is_exclude(self) -> bool:
