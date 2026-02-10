@@ -243,7 +243,9 @@ def solve_schedule(
             for di in range(num_days):
                 if weekday_of(di) == nurse.fixed_weekly_off:
                     fixed_off_days.add((ni, di))
-
+    
+    # 요청 처리
+    req_hard_days = set() # 요청 들어온 날짜 기록
     for r in requests:
         if not r.is_hard:
             continue
@@ -253,10 +255,8 @@ def solve_schedule(
         di = r.day - 1
         if di < 0 or di >= num_days:
             continue
-        # 고정 주휴일에 특수 휴무 요청이 겹치면 주휴 우선
-        if r.code in NAME_TO_IDX and r.code not in ("D", "E", "N") and (ni, di) in fixed_off_days:
-            model.add(shifts[(ni, di, _주)] == 1)
-        elif r.code in NAME_TO_IDX:
+        req_hard_days.add((ni, di))
+        if r.code in NAME_TO_IDX:
             si = NAME_TO_IDX[r.code]
             model.add(shifts[(ni, di, si)] == 1)
 
@@ -289,6 +289,8 @@ def solve_schedule(
             for di in range(num_days):
                 if weekday_of(di) == nurse.fixed_weekly_off:
                     model.add(shifts[(ni, di, _주)] == 1)
+                else:
+                    model.add(shifts[(ni, di, _주)] == 0) # 다른 날엔 주휴 안 됨
 
     # ── H10a. 주는 고정 주휴일에만 배치 가능 ──
     for ni, nurse in enumerate(nurses):
@@ -303,9 +305,9 @@ def solve_schedule(
             if di not in public_holiday_dis:
                 model.add(shifts[(ni, di, _법휴)] == 0)
 
-    # ── H11. 주당 정규 휴무 (주+OFF 카운트) ──
-    # 일반: 주+OFF == 2/주 (주1 + OFF1)
-    # 주4일제: 주+OFF == 3/주
+    # ── H11. 주당 정규 OFF ──
+    # 일반: 주당 OFF 1개
+    # 주4일제: 주당 OFF 2개
     # 법휴/수면/생휴 등은 별도 추가 (이 예산에 미포함)
     # 주 경계: 일요일~토요일 (weekday 6=일, 5=토)
 
@@ -328,27 +330,22 @@ def solve_schedule(
         wk_start = wk_end + 1
 
     for ni in range(num_nurses):
-        base_min = rules.min_weekly_off          # 일반: 2
+        target_off_count = 1  # 기본: 주휴 제외하고 OFF 1개 더
         if nurses[ni].is_4day_week:
-            base_min = 3                          # 주4일제: 3
+            target_off_count = 2 # 주4일제: 주휴 제외하고 OFF 2개 더
+        
         for wk_start, wk_end in weeks:
             days_in_week = wk_end - wk_start + 1
-            if days_in_week < 7:
-                # 불완전 주: 비례 최소
-                min_off = max(1, base_min * days_in_week // 7)
-                model.add(
-                    sum(shifts[(ni, di, oi)]
-                        for di in range(wk_start, wk_end + 1)
-                        for oi in REGULAR_OFF)
-                    >= min_off
-                )
-            else:
-                model.add(
-                    sum(shifts[(ni, di, oi)]
-                        for di in range(wk_start, wk_end + 1)
-                        for oi in REGULAR_OFF)
-                    == base_min
-                )
+            # 주가 짧을 경우 비례 배분 (7일 미만이면 0개 허용 등 유동적)
+            min_off_week = target_off_count if days_in_week >= 5 else 0
+
+            # ★ 여기서 REGULAR_OFF가 아니라 _OFF만 세기
+            # 단, 해가 안 나오면 >=로 풀어야 함
+            model.add(
+                sum(shifts[(ni, di, _OFF)] 
+                    for di in range(wk_start, wk_end + 1)) 
+                == min_off_week
+            )
 
     # ── H12. 책임 1명 이상 (매 근무) ──
     chiefs = [ni for ni, n in enumerate(nurses) if n.grade == "책임"]
@@ -664,6 +661,7 @@ def solve_schedule(
     )
 
     if status in (cp_model.OPTIMAL, cp_model.FEASIBLE):
+        print("✅ 해를 찾았습니다!")
         for ni, nurse in enumerate(nurses):
             for di in range(num_days):
                 for si in range(NUM_TYPES):
@@ -673,6 +671,8 @@ def solve_schedule(
 
         # 후처리: 임산부 POFF 리라벨
         _post_process(schedule, nurses, rules)
+    else:
+        print("❌ 해를 찾을 수 없습니다 (Infeasible). 인원수 설정이나 휴무 조건을 확인하세요.")
 
     return schedule
 
