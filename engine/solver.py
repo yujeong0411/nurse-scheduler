@@ -635,18 +635,18 @@ def _post_process(
         if nurse.is_pregnant:
             _label_poff(schedule, nurse, rules)
 
-        # ── P7. 남은 LEAVE → OFF로 변환 ──
-        for day in range(1, num_days + 1):
-            if schedule.get_shift(nid, day) == "LEAVE":
-                schedule.set_shift(nid, day, "OFF")
-
-        # ── P8. 공휴일 최종 보정: 주 빼고 모든 비근무 → 법휴 ──
+        # ── P7. 공휴일 보정: LEAVE(아직 미배정) → 법휴 ──
+        # P8 전에 실행하여 LEAVE 유래 휴무만 법휴로 변환 (정규 OFF 보존)
         for day in rules.public_holidays:
             if day < 1 or day > num_days:
                 continue
-            s = schedule.get_shift(nid, day)
-            if s not in WORK_SHIFTS and s != "주":
+            if schedule.get_shift(nid, day) == "LEAVE":
                 schedule.set_shift(nid, day, "법휴")
+
+        # ── P8. 남은 LEAVE → OFF로 변환 ──
+        for day in range(1, num_days + 1):
+            if schedule.get_shift(nid, day) == "LEAVE":
+                schedule.set_shift(nid, day, "OFF")
 
 
 def _label_sleep(
