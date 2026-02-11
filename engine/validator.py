@@ -17,7 +17,6 @@
  15.  임산부 연속 근무 ≤4
  16.  휴가 잔여일 초과
 """
-import calendar
 from engine.models import (
     Nurse, Rules, Schedule,
     WORK_SHIFTS, OFF_TYPES, SHIFT_ORDER, ROLE_TIERS,
@@ -281,7 +280,34 @@ def validate_change(
                 f"(최대 {rules.pregnant_poff_interval}일)"
             )
 
-    # ── 16. 휴가 잔여일 ──
+    # ── 16. N→1off→D 금지 (N 후 D까지 최소 2일 휴무) ──
+    # D로 변경 시: 2일 전이 N이고 사이가 휴무면 위반
+    if new_shift == "D" and day >= 3:
+        prev2 = schedule.get_shift(nid, day - 2)
+        prev1 = schedule.get_shift(nid, day - 1)
+        if prev2 == "N" and prev1 not in WORK_SHIFTS:
+            violations.append(
+                f"N→1휴무→D 금지: {day-2}일 N → {day-1}일 {prev1} → {day}일 D"
+            )
+    # N으로 변경 시: 2일 후가 D이고 사이가 휴무면 위반
+    if new_shift == "N" and day + 2 <= num_days:
+        next1 = schedule.get_shift(nid, day + 1)
+        next2 = schedule.get_shift(nid, day + 2)
+        if next2 == "D" and next1 not in WORK_SHIFTS:
+            violations.append(
+                f"N→1휴무→D 금지: {day}일 N → {day+1}일 {next1} → {day+2}일 D"
+            )
+    # 근무→OFF 변경 시: 양쪽이 N, D이면 위반
+    if is_off and old_shift in WORK_SHIFTS:
+        if day >= 2 and day < num_days:
+            prev = schedule.get_shift(nid, day - 1)
+            nxt = schedule.get_shift(nid, day + 1)
+            if prev == "N" and nxt == "D":
+                violations.append(
+                    f"N→1휴무→D 금지: {day-1}일 N → {day}일 {new_shift} → {day+1}일 D"
+                )
+
+    # ── 17. 휴가 잔여일 ──
     if new_shift == "휴가":
         used = sum(
             1 for d in range(1, num_days + 1)

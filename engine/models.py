@@ -7,9 +7,9 @@
 """
 from dataclasses import dataclass, field
 from typing import Optional
+from datetime import date, timedelta
 import json
 import os
-import calendar
 
 
 # ══════════════════════════════════════════
@@ -281,11 +281,11 @@ class Rules:
 class Schedule:
     """
     생성된 근무표 결과
-    
+
     solver가 결과를 여기에 채우고, result_tab이 이걸 읽어서 화면에 노출
+    4주(28일) 단위, start_date 기반
     """
-    year: int
-    month: int
+    start_date: date            # 시작일
     nurses: list                # list[Nurse]
     rules: Rules
     requests: list              # list[Request]
@@ -293,16 +293,30 @@ class Schedule:
     schedule_data: dict = field(default_factory=dict)   # 객체를 만들때 마다 dict()를 새로 호출해서 빈 딕셔너리 생성
 
     @property
+    def year(self) -> int:
+        """수면 로직 등 호환용"""
+        return self.start_date.year
+
+    @property
+    def month(self) -> int:
+        """수면 로직 등 호환용"""
+        return self.start_date.month
+
+    @property
     def num_days(self) -> int:
-        return calendar.monthrange(self.year, self.month)[1]
+        return 28
+
+    def date_of(self, day: int) -> date:
+        """day(1-based) → 실제 날짜"""
+        return self.start_date + timedelta(days=day - 1)
 
     def is_weekend(self, day: int) -> bool:
         """주말 여부"""
-        return calendar.weekday(self.year, self.month, day) >= 5   # 토=5, 일=6
+        return self.date_of(day).weekday() >= 5   # 토=5, 일=6
 
     def weekday_index(self, day: int) -> int:
         """0=월, 1=화, ..., 6=일"""
-        return calendar.weekday(self.year, self.month, day)
+        return self.date_of(day).weekday()
 
     def weekday_name(self, day: int) -> str:
         """요일 구분"""
@@ -354,16 +368,8 @@ class Schedule:
         return s in OFF_TYPES or s == ""
 
     def get_week_ranges(self) -> list[tuple[int, int]]:
-        """월의 주 단위 범위 반환: [(1,7), (8,14), ...]
-        고정 주기: 1~7일=1주, 8~14일=2주, ...
-        """
-        weeks = []
-        d = 1
-        while d <= self.num_days:
-            end = min(d + 6, self.num_days)
-            weeks.append((d, end))
-            d = end + 1
-        return weeks
+        """4주 고정: [(1,7), (8,14), (15,21), (22,28)]"""
+        return [(1, 7), (8, 14), (15, 21), (22, 28)]
 
 
 class DataManager:
@@ -418,24 +424,24 @@ class DataManager:
         data = self._load_json("rules.json")
         return Rules.from_dict(data) if data else Rules()
 
-    def save_requests(self, requests: list, year: int, month: int):
+    def save_requests(self, requests: list, start_date: date):
         self._save_json(
-            f"requests_{year}_{month:02d}.json",
+            f"requests_{start_date.isoformat()}.json",
             [r.to_dict() for r in requests],
             backup=False,
         )
 
-    def load_requests(self, year: int, month: int) -> list:
-        data = self._load_json(f"requests_{year}_{month:02d}.json", [])
+    def load_requests(self, start_date: date) -> list:
+        data = self._load_json(f"requests_{start_date.isoformat()}.json", [])
         return [Request.from_dict(d) for d in data]
 
-    def save_schedule(self, schedule_data: dict, year: int, month: int):
+    def save_schedule(self, schedule_data: dict, start_date: date):
         converted = {}
         for nid, days in schedule_data.items():
             converted[str(nid)] = {str(d): s for d, s in days.items()}
-        self._save_json(f"schedule_{year}_{month:02d}.json", converted)
+        self._save_json(f"schedule_{start_date.isoformat()}.json", converted)
 
-    def load_schedule(self, year: int, month: int) -> dict:
-        raw = self._load_json(f"schedule_{year}_{month:02d}.json", {})
+    def load_schedule(self, start_date: date) -> dict:
+        raw = self._load_json(f"schedule_{start_date.isoformat()}.json", {})
         return {int(nid): {int(d): s for d, s in days.items()}
                 for nid, days in raw.items()}

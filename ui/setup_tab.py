@@ -1,15 +1,15 @@
 """Tab 1: 설정 + 간호사 관리 — 응급실"""
+from datetime import date, timedelta
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QGroupBox, QLabel,
-    QComboBox, QSpinBox, QTableWidget, QTableWidgetItem,
+    QComboBox, QTableWidget, QTableWidgetItem,
     QPushButton, QCheckBox, QHeaderView, QAbstractItemView,
-    QMessageBox, QFileDialog,
+    QMessageBox, QFileDialog, QLineEdit, QDateEdit
 )
-from PyQt6.QtCore import Qt, pyqtSignal
-from PyQt6.QtGui import QFont
+from PyQt6.QtCore import Qt, pyqtSignal, QDate
+from PyQt6.QtGui import QFont, QIntValidator
 from engine.models import Nurse, DataManager
-from ui.styles import ROLE_OPTIONS, GRADE_OPTIONS, WEEKDAY_OPTIONS, FONT_FAMILY
-
+from ui.styles import ROLE_OPTIONS, GRADE_OPTIONS, WEEKDAY_OPTIONS, FONT_FAMILY, NoWheelComboBox
 
 # 테이블 열 인덱스
 COL_NAME = 0
@@ -41,33 +41,28 @@ class SetupTab(QWidget):
         layout = QVBoxLayout(self)
         layout.setSpacing(12)
 
-        # ── 상단: 월 선택 ──
-        month_group = QGroupBox("스케줄 기본 설정")
-        month_layout = QHBoxLayout(month_group)
+        # ── 상단: 시작일 선택 ──
+        date_group = QGroupBox("스케줄 기본 설정")
+        date_layout = QHBoxLayout(date_group)
 
-        month_layout.addWidget(QLabel("스케줄 작성:"))
-        self.year_spin = QSpinBox()
-        self.year_spin.setRange(2024, 2030)
-        self.year_spin.setValue(2026)
-        self.year_spin.setSuffix("년")
-        self.year_spin.setMinimumWidth(100)
-        month_layout.addWidget(self.year_spin)
+        date_layout.addWidget(QLabel("시작일:"))
+        self.date_edit = QDateEdit()
+        self.date_edit.setCalendarPopup(True)
+        self.date_edit.setDisplayFormat("yyyy-MM-dd")
+        self.date_edit.setDate(QDate(2026, 3, 1))
+        self.date_edit.setFixedWidth(140)
+        self.date_edit.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        date_layout.addWidget(self.date_edit)
 
-        self.month_spin = QSpinBox()
-        self.month_spin.setRange(1, 12)
-        self.month_spin.setValue(3)
-        self.month_spin.setSuffix("월")
-        self.month_spin.setMinimumWidth(80)
-        month_layout.addWidget(self.month_spin)
+        self.period_label = QLabel("")
+        self.period_label.setStyleSheet("color: #013976; font-weight: bold;")
+        date_layout.addWidget(self.period_label)
 
-        self.ym_label = QLabel("")
-        self.ym_label.setStyleSheet("color: #013976; font-weight: bold;")
-        month_layout.addWidget(self.ym_label)
-        self.year_spin.valueChanged.connect(self._on_ym_changed)
-        self.month_spin.valueChanged.connect(self._on_ym_changed)
+        self.date_edit.dateChanged.connect(self._on_date_changed)
+        self._on_date_changed()  # 초기 라벨 설정
 
-        month_layout.addStretch()
-        layout.addWidget(month_group)
+        date_layout.addStretch()
+        layout.addWidget(date_group)
 
         # ── 중앙: 간호사 테이블 ──
         nurse_group = QGroupBox("간호사 목록")
@@ -109,6 +104,7 @@ class SetupTab(QWidget):
 
         # 테이블
         self.table = QTableWidget()
+        self.table.verticalHeader().setDefaultSectionSize(38)
         headers = [
             "이름", "역할", "직급", "임산부", "남자",
             "주4일제", "고정주휴", "휴가잔여", "전월N", "수면이월", "비고",
@@ -116,19 +112,31 @@ class SetupTab(QWidget):
         self.table.setColumnCount(NUM_COLS)
         self.table.setHorizontalHeaderLabels(headers)
 
+        
+        # 이름 
         header = self.table.horizontalHeader()
         header.setSectionResizeMode(COL_NAME, QHeaderView.ResizeMode.Stretch)
+        self.table.setColumnWidth(COL_NAME, 60)
+
+        
+        # 역할, 직급
         for col in [COL_ROLE, COL_GRADE]:
             header.setSectionResizeMode(col, QHeaderView.ResizeMode.Fixed)
             self.table.setColumnWidth(col, 100)
+
+        # 체크박스 영역
         for col in [COL_PREGNANT, COL_MALE, COL_4DAY, COL_SLEEP]:
             header.setSectionResizeMode(col, QHeaderView.ResizeMode.Fixed)
-            self.table.setColumnWidth(col, 60)
+            self.table.setColumnWidth(col, 65)
+
         header.setSectionResizeMode(COL_WEEKOFF, QHeaderView.ResizeMode.Fixed)
         self.table.setColumnWidth(COL_WEEKOFF, 80)
+
         for col in [COL_VACATION, COL_PREV_N]:
             header.setSectionResizeMode(col, QHeaderView.ResizeMode.Fixed)
             self.table.setColumnWidth(col, 65)
+
+        # 비고는 늘어나게
         header.setSectionResizeMode(COL_NOTE, QHeaderView.ResizeMode.Stretch)
 
         self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
@@ -195,7 +203,7 @@ class SetupTab(QWidget):
             self.table.setItem(row, COL_NAME, QTableWidgetItem(nurse.name))
 
             # 역할 콤보
-            role_combo = QComboBox()
+            role_combo = NoWheelComboBox()
             role_combo.addItems(ROLE_OPTIONS)
             if nurse.role in ROLE_OPTIONS:
                 role_combo.setCurrentText(nurse.role)
@@ -205,7 +213,7 @@ class SetupTab(QWidget):
             self.table.setCellWidget(row, COL_ROLE, role_combo)
 
             # 직급 콤보
-            grade_combo = QComboBox()
+            grade_combo = NoWheelComboBox()
             grade_combo.addItems(GRADE_OPTIONS)
             if nurse.grade in GRADE_OPTIONS:
                 grade_combo.setCurrentText(nurse.grade)
@@ -389,8 +397,8 @@ class SetupTab(QWidget):
                 QMessageBox.warning(self, "오류", "간호사 목록이 없습니다. 먼저 규칙 엑셀을 불러오세요.")
                 return
 
-            year, month = self.get_year_month()
-            reqs, weekly_map = import_requests(path, self.nurses, year, month)
+            start_date = self.get_start_date()
+            reqs, weekly_map = import_requests(path, self.nurses, start_date)
 
             # 고정 주휴 반영
             for nurse in self.nurses:
@@ -401,7 +409,7 @@ class SetupTab(QWidget):
 
             # 요청 저장
             if reqs:
-                self.dm.save_requests(reqs, year, month)
+                self.dm.save_requests(reqs, start_date)
 
             QMessageBox.information(
                 self, "완료",
@@ -416,13 +424,17 @@ class SetupTab(QWidget):
     # 외부 인터페이스
     # ══════════════════════════════════════════
 
-    def _on_ym_changed(self):
-        y, m = self.year_spin.value(), self.month_spin.value()
-        self.ym_label.setText(f"▶ {y}년 {m}월")
+    def _on_date_changed(self):
+        sd = self.get_start_date()
+        ed = sd + timedelta(days=27)
+        self.period_label.setText(
+            f"▶ {sd.strftime('%Y.%m.%d')} ~ {ed.strftime('%Y.%m.%d')} (28일)"
+        )
 
     def get_nurses(self) -> list[Nurse]:
         self._sync_from_table()
         return self.nurses
 
-    def get_year_month(self) -> tuple[int, int]:
-        return self.year_spin.value(), self.month_spin.value()
+    def get_start_date(self) -> date:
+        qd = self.date_edit.date()
+        return date(qd.year(), qd.month(), qd.day())

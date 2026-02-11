@@ -1,21 +1,25 @@
 """색상, 스타일 상수 — 응급실 간호사 근무표"""
 from PyQt6.QtGui import QColor, QPen
-from PyQt6.QtWidgets import QStyledItemDelegate
+from PyQt6.QtWidgets import QStyledItemDelegate, QComboBox
+from PyQt6.QtCore import Qt
 
 # ══════════════════════════════════════════
 # 주 구분선 델리게이트
 # ══════════════════════════════════════════
 
 class WeekSeparatorDelegate(QStyledItemDelegate):
-    """일요일 컬럼 왼쪽에 굵은 구분선"""
+    """일요일 컬럼 구분선 + 요청 미반영 시 테두리 표시"""
 
     def __init__(self, sunday_cols: set[int], parent=None):
         super().__init__(parent)
         self.sunday_cols = sunday_cols
 
     def paint(self, painter, option, index):
+        # 1. 기본 텍스트와 배경 그리기
         super().paint(painter, option, index)
-        if index.column() in self.monday_cols:
+
+        # 2. 일요일 구분선 그리기
+        if index.column() in self.sunday_cols:
             painter.save()
             pen = QPen(QColor(80, 80, 80))
             pen.setWidth(2)
@@ -25,6 +29,28 @@ class WeekSeparatorDelegate(QStyledItemDelegate):
                 option.rect.left(), option.rect.bottom(),
             )
             painter.restore()
+
+        # 3. 요청 미반영 테두리 그리기
+        # UserRole에 True가 설정되어 있다면 빨간 테두리 표시
+        if index.data(Qt.ItemDataRole.UserRole):
+            painter.save()
+            # 테두리 색상 및 두께 설정 (빨간색, 2px)
+            pen = QPen(QColor(255, 0, 0)) 
+            pen.setWidth(2)
+            # 테두리가 셀 안쪽으로 그려지도록 설정
+            pen.setJoinStyle(Qt.PenJoinStyle.MiterJoin)
+            painter.setPen(pen)
+            
+            # 셀 영역보다 1px 안쪽에 사각형 그리기
+            rect = option.rect.adjusted(1, 1, -1, -1)
+            painter.drawRect(rect)
+            painter.restore()
+
+
+class NoWheelComboBox(QComboBox):
+    """마우스 휠로 값이 변하는 것을 방지하는 커스텀 콤보박스"""
+    def wheelEvent(self, event):
+        event.ignore()
 
 # ══════════════════════════════════════════
 # 근무/휴무 배경 색상 (17종 + OFF)
@@ -113,112 +139,153 @@ FONT_FAMILY = "맑은 고딕"
 # ══════════════════════════════════════════
 APP_STYLE = """
 QMainWindow {
-    background-color: #f5f5f5;
+    background-color: #f3f6fa;
 }
+
+/* =========================
+   탭 영역
+========================= */
 QTabWidget::pane {
-    border: 1px solid #cccccc;
+    border: none;
     background: white;
+    border-radius: 10px;
 }
+
 QTabBar::tab {
-    background: #e0e0e0;
-    padding: 8px 20px;
-    margin-right: 2px;
-    border-top-left-radius: 4px;
-    border-top-right-radius: 4px;
+    background: transparent;
+    padding: 10px 24px;
+    margin-right: 4px;
+    border-radius: 8px;
     font-size: 11pt;
     font-family: '맑은 고딕';
+    color: #555555;
 }
+
 QTabBar::tab:selected {
     background: white;
-    font-weight: bold;
+    font-weight: 600;
     color: #013976;
+    border: 1px solid #e3e8ef;
 }
+
 QTabBar::tab:hover {
-    background: #d0d8e8;
+    background: #edf2f8;
 }
+
+/* =========================
+   버튼
+========================= */
 QPushButton {
     background-color: #013976;
     color: white;
     border: none;
-    padding: 8px 16px;
-    border-radius: 4px;
+    padding: 8px 18px;
+    border-radius: 8px;
     font-size: 10pt;
     font-family: '맑은 고딕';
 }
+
 QPushButton:hover {
-    background-color: #3a6bc5;
+    background-color: #0a4ea3;
 }
+
 QPushButton:pressed {
-    background-color: #1d3a6a;
+    background-color: #012a5c;
 }
-QPushButton#dangerBtn {
-    background-color: #c0392b;
-}
-QPushButton#dangerBtn:hover {
-    background-color: #e74c3c;
-}
+
 QPushButton#secondaryBtn {
-    background-color: #7f8c8d;
+    background-color: #e8edf3;
+    color: #013976;
 }
+
 QPushButton#secondaryBtn:hover {
-    background-color: #95a5a6;
+    background-color: #d8e2f0;
 }
+
+/* =========================
+   테이블
+========================= */
 QTableWidget {
-    gridline-color: #d0d0d0;
+    background-color: white;
+    border: 1px solid #e3e8ef;
+    border-radius: 10px;
+    gridline-color: #eef2f6;
     font-size: 10pt;
     font-family: '맑은 고딕';
 }
+
 QTableWidget::item {
-    padding: 4px;
+    padding: 2px;
 }
+
+/* 헤더 */
 QHeaderView::section {
     background-color: #013976;
     color: white;
-    padding: 6px;
-    border: 1px solid #1d3a6a;
-    font-weight: bold;
+    padding: 8px;
+    border: none;
+    font-weight: 600;
     font-size: 10pt;
     font-family: '맑은 고딕';
 }
-QLabel {
-    font-family: '맑은 고딕';
-}
+
+/* =========================
+   콤보박스
+========================= */
 QComboBox {
-    font-family: '맑은 고딕';
+    border: 1px solid #d9e1ec;
+    border-radius: 4px;
+    padding: 2px 4px;
+    background: white;
     font-size: 10pt;
-    padding: 0.5px 0.5px 0.5px 4px; /* 상우하좌: 여백을 줄여 텍스트 공간 확보 */
-    margin: 0px;
+    font-family: '맑은 고딕';
 }
+
+QComboBox:hover {
+    border: 1px solid #013976;
+}
+
 QComboBox QAbstractItemView {
-    min-width: 62px; /* 리스트의 최소 너비를 확보하여 텍스트가 잘리지 않게 함 */
     background-color: white;
-    selection-background-color: #d0d8e8;
-    padding: 2px;
+    border: 1px solid #d9e1ec;
+    selection-background-color: #e8f0fb;
+    padding: 4px;
 }
-QSpinBox {
-    font-family: '맑은 고딕';
-    font-size: 10pt;
-    padding: 4px 6px;
-    min-height: 28px;
-}
-QSpinBox::up-button, QSpinBox::down-button {
-    min-width: 20px;
-}
+
+/* =========================
+   GroupBox
+========================= */
 QGroupBox {
     font-family: '맑은 고딕';
     font-size: 10pt;
-    font-weight: bold;
-    border: 1px solid #cccccc;
-    border-radius: 4px;
-    margin-top: 12px;
-    padding-top: 16px;
+    font-weight: 600;
+    border: 1px solid #e3e8ef;
+    border-radius: 10px;
+    margin-top: 14px;
+    padding-top: 18px;
+    background: white;
 }
+
 QGroupBox::title {
     subcontrol-origin: margin;
-    left: 12px;
-    padding: 0 4px;
+    left: 16px;
+    padding: 0 6px;
     color: #013976;
 }
+
+/* =========================
+   SpinBox
+========================= */
+QSpinBox {
+    border: 1px solid #d9e1ec;
+    border-radius: 6px;
+    padding: 4px 6px;
+    background: white;
+}
+
+/* =========================
+   체크박스
+========================= */
 QCheckBox {
     font-family: '맑은 고딕';
     font-size: 10pt;

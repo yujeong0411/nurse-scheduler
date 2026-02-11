@@ -1,42 +1,17 @@
 """Tab 4: 결과 + 수동 수정 + 통계 — 응급실"""
+from datetime import date, timedelta
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QTableWidget,
     QTableWidgetItem, QPushButton, QHeaderView, QMessageBox,
-    QProgressBar, QGroupBox, QFileDialog, QStyledItemDelegate
-)
-from PyQt6.QtCore import Qt, QRect
-from PyQt6.QtGui import QColor, QFont, QBrush, QPen
-from engine.models import (
-    Nurse, Request, Rules, Schedule, DataManager,
-    WORK_SHIFTS, OFF_TYPES,
-)
+    QProgressBar, QGroupBox, QFileDialog)
+from PyQt6.QtCore import Qt
+from PyQt6.QtGui import QColor, QFont, QBrush
+from engine.models import Schedule, DataManager
 from ui.styles import (
     SHIFT_COLORS, SHIFT_TEXT_COLORS, SHIFT_TYPES,
     WEEKEND_BG, SHORTAGE_BG, FONT_FAMILY,
     WeekSeparatorDelegate,
 )
-import calendar
-
-
-class WeekSeparatorDelegate(QStyledItemDelegate):
-    """일요일 컬럼 왼쪽에 굵은 구분선을 그리는 델리게이트"""
-
-    def __init__(self, sunday_cols: set[int], parent=None):
-        super().__init__(parent)
-        self.sunday_cols = sunday_cols
-
-    def paint(self, painter, option, index):
-        super().paint(painter, option, index)
-        if index.column() in self.sunday_cols:
-            painter.save()
-            pen = QPen(QColor(80, 80, 80))
-            pen.setWidth(2)
-            painter.setPen(pen)
-            painter.drawLine(
-                option.rect.left(), option.rect.top(),
-                option.rect.left(), option.rect.bottom(),
-            )
-            painter.restore()
 
 
 class ResultTab(QWidget):
@@ -49,42 +24,45 @@ class ResultTab(QWidget):
 
     def _init_ui(self):
         layout = QVBoxLayout(self)
+        layout.setSpacing(12)
 
-        # 상단 버튼
-        top = QHBoxLayout()
+        # ── 상단: 타이틀 + 버튼 ──
+        top_group = QGroupBox("근무표 생성")
+        top_layout = QHBoxLayout(top_group)
 
-        self.generate_btn = QPushButton("▶ 근무표 생성")
-        self.generate_btn.setFont(QFont(FONT_FAMILY, 12, QFont.Weight.Bold))
-        self.generate_btn.setStyleSheet(
-            "QPushButton { background-color: #27ae60; padding: 12px 24px; font-size: 13pt; }"
-            "QPushButton:hover { background-color: #2ecc71; }"
-        )
-        self.generate_btn.clicked.connect(self._on_generate)
-        top.addWidget(self.generate_btn)
+        self.title_label = QLabel("")
+        self.title_label.setFont(QFont(FONT_FAMILY, 13, QFont.Weight.Bold))
+        self.title_label.setStyleSheet("color: #013976;")
+        top_layout.addWidget(self.title_label)
 
         self.progress = QProgressBar()
         self.progress.setVisible(False)
         self.progress.setFixedWidth(200)
-        top.addWidget(self.progress)
+        top_layout.addWidget(self.progress)
 
-        top.addStretch()
+        top_layout.addStretch()
+
+        self.generate_btn = QPushButton("▶ 근무표 생성")
+        self.generate_btn.clicked.connect(self._on_generate)
+        top_layout.addWidget(self.generate_btn)
 
         self.regenerate_btn = QPushButton("다시 생성")
         self.regenerate_btn.setObjectName("secondaryBtn")
         self.regenerate_btn.clicked.connect(self._on_generate)
         self.regenerate_btn.setVisible(False)
-        top.addWidget(self.regenerate_btn)
+        top_layout.addWidget(self.regenerate_btn)
 
         self.export_btn = QPushButton("엑셀로 저장")
         self.export_btn.clicked.connect(self._export_excel)
         self.export_btn.setVisible(False)
-        top.addWidget(self.export_btn)
+        top_layout.addWidget(self.export_btn)
 
-        layout.addLayout(top)
+        layout.addWidget(top_group)
 
         # 결과 테이블
         self.table = QTableWidget()
         self.table.setAlternatingRowColors(False)
+        self.table.verticalHeader().setDefaultSectionSize(38)
         self.table.verticalHeader().setVisible(False)
         self.table.setSelectionMode(QTableWidget.SelectionMode.SingleSelection)
         layout.addWidget(self.table, stretch=3)
@@ -98,29 +76,10 @@ class ResultTab(QWidget):
         self.stats_label.setWordWrap(True)
         stats_layout.addWidget(self.stats_label)
 
-        self.grade_label = QLabel("")
-        self.grade_label.setFont(QFont(FONT_FAMILY, 12, QFont.Weight.Bold))
-        stats_layout.addWidget(self.grade_label)
-
         self.pattern_label = QLabel("")
         self.pattern_label.setWordWrap(True)
         self.pattern_label.setStyleSheet("color: #c0392b;")
         stats_layout.addWidget(self.pattern_label)
-
-        # 감점 상세 토글
-        self.detail_btn = QPushButton("📋 감점 상세 보기")
-        self.detail_btn.setVisible(False)
-        self.detail_btn.clicked.connect(self._toggle_deduction_detail)
-        stats_layout.addWidget(self.detail_btn)
-
-        self.deduction_label = QLabel("")
-        self.deduction_label.setWordWrap(True)
-        self.deduction_label.setStyleSheet(
-            "color: #555; font-size: 9pt; padding: 6px; "
-            "background: #f9f9f9; border-radius: 4px;"
-        )
-        self.deduction_label.setVisible(False)
-        stats_layout.addWidget(self.deduction_label)
 
         layout.addWidget(self.stats_group, stretch=1)
 
@@ -134,12 +93,15 @@ class ResultTab(QWidget):
         self.placeholder.setStyleSheet("color: #999; padding: 40px;")
         layout.addWidget(self.placeholder)
 
-    def set_schedule_data(self, nurses, requests, rules, year, month):
+    def set_schedule_data(self, nurses, requests, rules, start_date):
         self.nurses = nurses
         self.requests = requests
         self.rules = rules
-        self.year = year
-        self.month = month
+        self.start_date = start_date
+        end_date = start_date + timedelta(days=27)
+        self.title_label.setText(
+            f"{start_date.strftime('%Y.%m.%d')} ~ {end_date.strftime('%Y.%m.%d')}"
+        )
 
     def _on_generate(self):
         if not hasattr(self, 'nurses') or not self.nurses:
@@ -157,12 +119,12 @@ class ResultTab(QWidget):
             from engine.solver import solve_schedule
             self.schedule = solve_schedule(
                 self.nurses, self.requests, self.rules,
-                self.year, self.month
+                self.start_date
             )
 
             if self.schedule and self.schedule.schedule_data:
                 self._display_schedule()
-                self.dm.save_schedule(self.schedule.schedule_data, self.year, self.month)
+                self.dm.save_schedule(self.schedule.schedule_data, self.start_date)
                 self.placeholder.setVisible(False)
                 self.stats_group.setVisible(True)
                 self.regenerate_btn.setVisible(True)
@@ -199,6 +161,10 @@ class ResultTab(QWidget):
         stat_cols = ["D", "E", "N", "OFF", "총"]
         # 중간근무 추가 시: ["D", "M", "E", "N", "OFF", "총"]
 
+        # 빠른 조회를 위해 요청사항을 딕셔너리로 변환
+        # 키: (간호사ID, 날짜), 값: 요청코드
+        req_map = {(r.nurse_id, r.day): r.code for r in self.requests}
+
         # 컬럼 레이아웃: 이름(0) + 휴가(1) + 생휴(2) + 수면(3) + 날짜(4~) + 통계
         EXTRA_COLS = 3  # 휴가, 생휴, 수면
         DAY_START = 1 + EXTRA_COLS  # = 4
@@ -212,18 +178,19 @@ class ResultTab(QWidget):
         # 주 구분선: 일요일 컬럼 + 통계 열 앞에 굵은 세로선
         border_cols = set()
         for d in range(2, num_days + 1):
-            if calendar.weekday(self.year, self.month, d) == 6:  # 일요일
+            if self.schedule.weekday_index(d) == 6:  # 일요일
                 border_cols.add(DAY_START + d - 1)
         border_cols.add(DAY_START + num_days)  # 통계 열 구분
         self._week_delegate = WeekSeparatorDelegate(border_cols, self.table)
         self.table.setItemDelegate(self._week_delegate)
 
-        # 헤더
+        # 헤더: 실제 날짜 표시
         weekday_names = ["월", "화", "수", "목", "금", "토", "일"]
         headers = ["이름", "휴가", "생휴", "수면"]
         for d in range(1, num_days + 1):
-            wd = calendar.weekday(self.year, self.month, d)
-            headers.append(f"{d}\n({weekday_names[wd]})")
+            dt = self.schedule.date_of(d)
+            wd = dt.weekday()
+            headers.append(f"{dt.month}/{dt.day}\n({weekday_names[wd]})")
         headers.extend(stat_cols)
         self.table.setHorizontalHeaderLabels(headers)
 
@@ -242,12 +209,12 @@ class ResultTab(QWidget):
             self.table.setColumnWidth(c, 36)
 
         # 주 구분선: 일요일 컬럼에 굵은 왼쪽 선
-        monday_cols = set()
+        sunday_cols = set()
         for d in range(1, num_days + 1):
-            if calendar.weekday(self.year, self.month, d) == 6:  # 일요일
-                monday_cols.add(DAY_START + d - 1)
+            if self.schedule.weekday_index(d) == 6:  # 일요일
+                sunday_cols.add(DAY_START + d - 1)
         self.table.setItemDelegate(
-            WeekSeparatorDelegate(monday_cols, self.table)
+            WeekSeparatorDelegate(sunday_cols, self.table)
         )
 
         # 간호사별 데이터
@@ -281,14 +248,37 @@ class ResultTab(QWidget):
                 item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
                 item.setFont(QFont(FONT_FAMILY, 8, QFont.Weight.Bold))
 
+                # 배경색/글자색 설정 (기존 코드)
                 if shift in SHIFT_COLORS:
                     item.setBackground(QBrush(SHIFT_COLORS[shift]))
                 if shift in SHIFT_TEXT_COLORS:
                     item.setForeground(QBrush(SHIFT_TEXT_COLORS[shift]))
 
-                wd = calendar.weekday(self.year, self.month, d)
+                wd = self.schedule.weekday_index(d)
                 if wd >= 5 and shift not in SHIFT_COLORS:
                     item.setBackground(QBrush(WEEKEND_BG))
+
+                # 요청사항 미반영 체크 로직
+                req_code = req_map.get((nurse.id, d), "")
+                is_violation = False
+
+                if req_code:
+                    # 1. 제외 요청 처리 ("D 제외", "E 제외", "N 제외")
+                    if "제외" in req_code:
+                        # 예: "D 제외" -> banned_shift는 "D"
+                        banned_shift = req_code.split()[0] 
+                        if shift == banned_shift:
+                            is_violation = True
+                    
+                    # 2. 일반 요청 처리 ("OFF", "D", "E", "N" 등)
+                    # 요청한 근무와 실제 근무가 다르면 위반
+                    elif req_code != shift:
+                        is_violation = True
+
+                # 위반 시 테두리 표시 (Delegate가 UserRole을 확인하여 그림)
+                if is_violation:
+                    item.setData(Qt.ItemDataRole.UserRole, True)
+                    item.setToolTip(f"요청사항 미반영!\n(요청: {req_code} ↔ 실제: {shift})")
 
                 item.setFlags(item.flags() | Qt.ItemFlag.ItemIsEditable)
                 self.table.setItem(row, col, item)
@@ -526,10 +516,6 @@ class ResultTab(QWidget):
             from engine.evaluator import evaluate_schedule
             result = evaluate_schedule(self.schedule, self.rules)
 
-            self.grade_label.setText(
-                f"📊 종합 점수: {result['score']}점 (등급 {result['grade']})"
-            )
-
             lines = []
             lines.append(
                 f"D 편차 {result['d_deviation']} | "
@@ -558,43 +544,16 @@ class ResultTab(QWidget):
             else:
                 self.pattern_label.setText("✅ 역순 패턴 없음")
 
-            # 감점 상세
-            deductions = result.get("deductions", [])
-            if deductions:
-                self.detail_btn.setVisible(True)
-                lines = []
-                for item_name, penalty, detail in deductions:
-                    lines.append(f"▸ {item_name}: -{penalty}점")
-                    lines.append(f"   {detail}")
-                self._deduction_text = "\n".join(lines)
-            else:
-                self.detail_btn.setVisible(False)
-                self.deduction_label.setVisible(False)
-                self._deduction_text = ""
-
-        except (ImportError, Exception):
-            self.grade_label.setText("")
+        except Exception:
             self.stats_label.setText("")
             self.pattern_label.setText("")
-            self.detail_btn.setVisible(False)
-            self.deduction_label.setVisible(False)
-
-    def _toggle_deduction_detail(self):
-        """감점 상세 패널 토글"""
-        if self.deduction_label.isVisible():
-            self.deduction_label.setVisible(False)
-            self.detail_btn.setText("📋 감점 상세 보기")
-        else:
-            self.deduction_label.setText(getattr(self, "_deduction_text", ""))
-            self.deduction_label.setVisible(True)
-            self.detail_btn.setText("📋 감점 상세 접기")
 
     def _export_excel(self):
         if not self.schedule:
             return
         path, _ = QFileDialog.getSaveFileName(
             self, "엑셀로 저장",
-            f"근무표_{self.year}_{self.month:02d}.xlsx",
+            f"근무표_{self.start_date.isoformat()}.xlsx",
             "Excel Files (*.xlsx)"
         )
         if path:

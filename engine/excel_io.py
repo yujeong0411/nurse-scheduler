@@ -10,6 +10,7 @@
 """
 import calendar
 import re
+from datetime import date, timedelta
 from openpyxl import Workbook, load_workbook
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
@@ -25,38 +26,38 @@ from engine.models import (
 
 # 근무별 색상
 FILLS = {
-    "D":   PatternFill(start_color="DAF0F3", fill_type="solid"),
+    # "D":   PatternFill(start_color="DAF0F3", fill_type="solid"),
     # "D9":  PatternFill(start_color="B4E1E8", fill_type="solid"),  # 중간 계열
     # "D1":  PatternFill(start_color="B4E1E8", fill_type="solid"),  # 중간 계열
     # "중1":  PatternFill(start_color="FDEBD0", fill_type="solid"), # 중간 계열
     # "중2":  PatternFill(start_color="FDEBD0", fill_type="solid"), # 중간 계열
-    "E":   PatternFill(start_color="FDE9D9", fill_type="solid"),
-    "N":   PatternFill(start_color="E4DFEC", fill_type="solid"),
-    "OFF": PatternFill(start_color="D8E4BC", fill_type="solid"),
-    "주":   PatternFill(start_color="C6EFCE", fill_type="solid"),
-    "법휴": PatternFill(start_color="FFEB9C", fill_type="solid"),
-    "생휴":   PatternFill(start_color="F4CCCC", fill_type="solid"),
-    "수면": PatternFill(start_color="D9D2E9", fill_type="solid"),
-    "POFF": PatternFill(start_color="FCE4D6", fill_type="solid"),
-    "휴가":   PatternFill(start_color="D0E0E3", fill_type="solid"),
-    "특휴": PatternFill(start_color="EAD1DC", fill_type="solid"),
-    "공가":   PatternFill(start_color="FFF2CC", fill_type="solid"),
-    "경가":   PatternFill(start_color="FFF2CC", fill_type="solid"),
+    # "E":   PatternFill(start_color="FDE9D9", fill_type="solid"),
+    # "N":   PatternFill(start_color="E4DFEC", fill_type="solid"),
+    "OFF": PatternFill(start_color="fcfb92", fill_type="solid"),
+    "주":   PatternFill(start_color="fcfb92", fill_type="solid"),
+    "법휴": PatternFill(start_color="fcfb92", fill_type="solid"),
+    "생휴":   PatternFill(start_color="fcfb92", fill_type="solid"),
+    "수면": PatternFill(start_color="fcfb92", fill_type="solid"),
+    "POFF": PatternFill(start_color="fcfb92", fill_type="solid"),
+    "휴가":   PatternFill(start_color="fcfb92", fill_type="solid"),
+    "특휴": PatternFill(start_color="fcfb92", fill_type="solid"),
+    "공가":   PatternFill(start_color="fcfb92", fill_type="solid"),
+    "경가":   PatternFill(start_color="fcfb92", fill_type="solid"),
 }
 FONTS = {
-    "D":   Font(color="2E75B6", bold=True, size=9),
+    "D":   Font(color="0775fa", bold=True, size=9),
     # "D9":  Font(color="2E75B6", bold=True, size=9),  # 중간 계열
     # "D1":  Font(color="2E75B6", bold=True, size=9),  # 중간 계열
     # "중1":  Font(color="BF8F00", bold=True, size=9),  # 중간 계열
     # "중2":  Font(color="BF8F00", bold=True, size=9),  # 중간 계열
-    "E":   Font(color="C55A11", bold=True, size=9),
-    "N":   Font(color="7030A0", bold=True, size=9),
-    "OFF": Font(color="548235", bold=True, size=9),
-    "주":   Font(color="006100", bold=True, size=9),
-    "법휴": Font(color="9C5700", bold=True, size=9),
-    "생휴":   Font(color="CC0000", bold=True, size=9),
-    "수면": Font(color="674EA7", bold=True, size=9),
-    "POFF": Font(color="BF6000", bold=True, size=9),
+    "E":   Font(color="d17804", bold=True, size=9),
+    "N":   Font(color="d61506", bold=True, size=9),
+    # "OFF": Font(color="548235", bold=True, size=9),
+    # "주":   Font(color="006100", bold=True, size=9),
+    # "법휴": Font(color="9C5700", bold=True, size=9),
+    # "생휴":   Font(color="CC0000", bold=True, size=9),
+    # "수면": Font(color="674EA7", bold=True, size=9),
+    # "POFF": Font(color="BF6000", bold=True, size=9),
 }
 
 HEADER_FILL = PatternFill(start_color="013976", fill_type="solid")
@@ -85,14 +86,16 @@ def export_schedule(schedule: Schedule, rules: Rules, filepath: str):
     ws = wb.active
     ws.title = "근무표"
 
-    year, month = schedule.year, schedule.month
+    start_date = schedule.start_date
+    end_date = schedule.date_of(28)
     num_days = schedule.num_days
     nurses = schedule.nurses
     weekday_names = ["월", "화", "수", "목", "금", "토", "일"]
 
     # 타이틀
     ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=num_days + 8)
-    ws.cell(1, 1, f"{year}년 {month}월 응급실 근무표")
+    title = f"{start_date.strftime('%Y.%m.%d')} ~ {end_date.strftime('%Y.%m.%d')} 응급실 근무표"
+    ws.cell(1, 1, title)
     ws.cell(1, 1).font = Font(bold=True, size=14, color="013976")
     ws.cell(1, 1).alignment = Alignment(horizontal="center")
 
@@ -112,7 +115,7 @@ def export_schedule(schedule: Schedule, rules: Rules, filepath: str):
     ws.cell(4, 1).font = Font(bold=True, size=9)
     ws.cell(4, 1).alignment = CENTER
     for d in range(1, num_days + 1):
-        wd = calendar.weekday(year, month, d)
+        wd = schedule.weekday_index(d)
         cell = ws.cell(4, d + 1, weekday_names[wd])
         cell.alignment = CENTER
         cell.font = Font(size=8, bold=True, color="CC0000" if wd >= 5 else "333333")
@@ -140,10 +143,10 @@ def export_schedule(schedule: Schedule, rules: Rules, filepath: str):
 
             if shift in FILLS:
                 cell.fill = FILLS[shift]
+            elif schedule.weekday_index(d) >= 5:
+                cell.fill = WEEKEND_FILL
             if shift in FONTS:
                 cell.font = FONTS[shift]
-            elif calendar.weekday(year, month, d) >= 5:
-                cell.fill = WEEKEND_FILL
 
             if shift == "D":
                 d_cnt += 1
@@ -203,7 +206,7 @@ def export_schedule(schedule: Schedule, rules: Rules, filepath: str):
 
     # ── Sheet 2: 통계 ──
     ws2 = wb.create_sheet("통계")
-    ws2.cell(1, 1, f"{year}년 {month}월 개인별 통계")
+    ws2.cell(1, 1, f"{start_date.strftime('%Y.%m.%d')} ~ {end_date.strftime('%Y.%m.%d')} 개인별 통계")
     ws2.cell(1, 1).font = Font(bold=True, size=14, color="013976")
 
     stat_headers = ["이름", "직급", "역할", "D", "E", "N",
@@ -393,15 +396,14 @@ def _normalize_code(val: str) -> str | None:
 def import_requests(
     filepath: str,
     nurses: list[Nurse],
-    year: int,
-    month: int,
+    start_date: date,
 ) -> tuple[list[Request], dict[int, int]]:
     """근무신청표 엑셀에서 요청사항 + 간호사 속성 읽기
 
     Args:
         filepath: 엑셀 파일 경로
         nurses: 간호사 목록 (이름 매칭용, 속성도 업데이트됨)
-        year, month: 대상 연월
+        start_date: 스케줄 시작일
 
     Returns:
         (requests, weekly_off_map)
@@ -419,13 +421,13 @@ def import_requests(
       B열: 휴가 (잔여 연차)
       C열: 생휴 (1=이미 사용)
       D열: 수면 (값 있으면 전월 이월)
-      E~AF열: 1일~28/31일 (코드 입력)
+      E~AF열: 1일~28일 (코드 입력)
     """
     wb = load_workbook(filepath, read_only=True, data_only=True)
     ws = wb.active
 
     nurse_name_map = {n.name.strip(): n for n in nurses}
-    num_days = calendar.monthrange(year, month)[1]
+    num_days = 28
 
     # ── 헤더/날짜 열 찾기 ──
     header_row = None
@@ -547,7 +549,7 @@ def import_requests(
 
             # "주" → 고정 주휴 요일 감지
             if code == "주":
-                wd = calendar.weekday(year, month, d)
+                wd = (start_date + timedelta(days=d - 1)).weekday()
                 if first_weekly is None:
                     first_weekly = wd
 

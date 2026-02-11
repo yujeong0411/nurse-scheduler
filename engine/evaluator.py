@@ -1,5 +1,4 @@
 """공정성 점수 평가 — 응급실 간호사 근무표 (D/E/N)"""
-import calendar
 from engine.models import (
     Schedule, Rules, WORK_SHIFTS, OFF_TYPES, SHIFT_ORDER, ROLE_TIERS,
 )

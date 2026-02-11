@@ -1,13 +1,13 @@
 """Tab 3: 규칙 설정 — 응급실"""
+from datetime import date, timedelta
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QGroupBox, QLabel,
-    QSpinBox, QCheckBox, QPushButton, QFormLayout, QMessageBox,
+    QCheckBox, QPushButton, QFormLayout, QMessageBox,
     QScrollArea, QFrame, QLineEdit,
 )
 from PyQt6.QtCore import Qt
-from PyQt6.QtGui import QFont
+from PyQt6.QtGui import QIntValidator
 from engine.models import Rules, DataManager
-from ui.styles import FONT_FAMILY
 
 
 class RulesTab(QWidget):
@@ -15,8 +15,7 @@ class RulesTab(QWidget):
         super().__init__()
         self.dm = data_manager
         self.rules = Rules()
-        self._year = 2026
-        self._month = 1
+        self._start_date = date(2026, 1, 1)
         self._init_ui()
         self._load_rules()
 
@@ -161,11 +160,12 @@ class RulesTab(QWidget):
         main_layout.addWidget(scroll)
 
     def _spin(self, default):
-        spin = QSpinBox()
-        spin.setRange(0, 31)
-        spin.setValue(default)
-        spin.setFixedWidth(80)
-        return spin
+        edit = QLineEdit()
+        edit.setValidator(QIntValidator(0, 31))
+        edit.setText(str(default))
+        edit.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        edit.setFixedWidth(60)
+        return edit
 
     def _spin_row(self, spin, unit):
         w = QWidget()
@@ -182,24 +182,29 @@ class RulesTab(QWidget):
 
     def _apply_to_ui(self):
         r = self.rules
-        self.daily_d.setValue(r.daily_D)
-        self.daily_e.setValue(r.daily_E)
-        self.daily_n.setValue(r.daily_N)
+        self.daily_d.setText(str(r.daily_D))
+        self.daily_e.setText(str(r.daily_E))
+        self.daily_n.setText(str(r.daily_N))
         self.ban_reverse.setChecked(r.ban_reverse_order)
-        self.max_consec_work.setValue(r.max_consecutive_work)
-        self.max_consec_n.setValue(r.max_consecutive_N)
-        self.off_after_2n.setValue(r.off_after_2N)
-        self.max_n_month.setValue(r.max_N_per_month)
-        self.min_weekly_off.setValue(r.min_weekly_off)
-        self.min_chief.setValue(r.min_chief_per_shift)
-        self.min_senior.setValue(r.min_senior_per_shift)
-        self.max_junior.setValue(r.max_junior_per_shift)
-        self.preg_interval.setValue(r.pregnant_poff_interval)
+
+        self.max_consec_work.setText(str(r.max_consecutive_work))
+        self.max_consec_n.setText(str(r.max_consecutive_N))
+        self.off_after_2n.setText(str(r.off_after_2N))
+        self.max_n_month.setText(str(r.max_N_per_month))
+        self.min_weekly_off.setText(str(r.min_weekly_off))
+        self.min_chief.setText(str(r.min_chief_per_shift))
+        self.min_senior.setText(str(r.min_senior_per_shift))
+        self.max_junior.setText(str(r.max_junior_per_shift))
+        self.preg_interval.setText(str(r.pregnant_poff_interval))
         self.menstrual.setChecked(r.menstrual_leave)
-        self.sleep_monthly.setValue(r.sleep_N_monthly)
-        self.sleep_bimonthly.setValue(r.sleep_N_bimonthly)
+        self.sleep_monthly.setText(str(r.sleep_N_monthly))
+        self.sleep_bimonthly.setText(str(r.sleep_N_bimonthly))
+
         if r.public_holidays:
             self.holidays_input.setText(", ".join(str(d) for d in r.public_holidays))
+
+    def _get_int(self, widget):
+        return int(widget.text()) if widget.text() else 0
 
     def _sync_from_ui(self):
         # 공휴일 파싱
@@ -216,22 +221,22 @@ class RulesTab(QWidget):
                     pass
 
         self.rules = Rules(
-            daily_D=self.daily_d.value(),
-            daily_E=self.daily_e.value(),
-            daily_N=self.daily_n.value(),
+            daily_D=self._get_int(self.daily_d),
+            daily_E=self._get_int(self.daily_e),
+            daily_N=self._get_int(self.daily_n),
             ban_reverse_order=self.ban_reverse.isChecked(),
-            max_consecutive_work=self.max_consec_work.value(),
-            max_consecutive_N=self.max_consec_n.value(),
-            off_after_2N=self.off_after_2n.value(),
-            max_N_per_month=self.max_n_month.value(),
-            min_weekly_off=self.min_weekly_off.value(),
-            min_chief_per_shift=self.min_chief.value(),
-            min_senior_per_shift=self.min_senior.value(),
-            max_junior_per_shift=self.max_junior.value(),
-            pregnant_poff_interval=self.preg_interval.value(),
+            max_consecutive_work=self._get_int(self.max_consec_work),
+            max_consecutive_N=self._get_int(self.max_consec_n),
+            off_after_2N=self._get_int(self.off_after_2n),
+            max_N_per_month=self._get_int(self.max_n_month),
+            min_weekly_off=self._get_int(self.min_weekly_off),
+            min_chief_per_shift=self._get_int(self.min_chief),
+            min_senior_per_shift=self._get_int(self.min_senior),
+            max_junior_per_shift=self._get_int(self.max_junior),
+            pregnant_poff_interval=self._get_int(self.preg_interval),
             menstrual_leave=self.menstrual.isChecked(),
-            sleep_N_monthly=self.sleep_monthly.value(),
-            sleep_N_bimonthly=self.sleep_bimonthly.value(),
+            sleep_N_monthly=self._get_int(self.sleep_monthly),
+            sleep_N_bimonthly=self._get_int(self.sleep_bimonthly),
             public_holidays=holidays,
         )
 
@@ -253,30 +258,34 @@ class RulesTab(QWidget):
         self._sync_from_ui()
         return self.rules
 
-    def set_year_month(self, year: int, month: int):
-        """설정 탭에서 연월 변경 시 호출"""
-        self._year = year
-        self._month = month
+    def set_start_date(self, start_date: date):
+        """설정 탭에서 시작일 변경 시 호출"""
+        self._start_date = start_date
 
     def _auto_detect_holidays(self):
-        """holidays 패키지로 해당 월 공휴일 자동 감지"""
+        """holidays 패키지로 해당 기간 공휴일 자동 감지"""
         try:
-            from engine.kr_holidays import get_holidays_for_month
-            hols = get_holidays_for_month(self._year, self._month)
+            from engine.kr_holidays import get_holidays_for_period
+            sd = self._start_date
+            ed = sd + timedelta(days=27)
+            hols = get_holidays_for_period(sd)
             if hols:
                 days_str = ", ".join(str(d) for d, _ in hols)
-                names = "\n".join(f"  {d}일: {name}" for d, name in hols)
+                names = "\n".join(
+                    f"  {d}일차 ({(sd + timedelta(days=d-1)).strftime('%m/%d')}): {name}"
+                    for d, name in hols
+                )
                 self.holidays_input.setText(days_str)
                 QMessageBox.information(
                     self, "공휴일 자동 감지",
-                    f"{self._year}년 {self._month}월 공휴일:\n{names}\n\n"
+                    f"{sd.strftime('%Y.%m.%d')} ~ {ed.strftime('%Y.%m.%d')} 공휴일:\n{names}\n\n"
                     "필요시 직접 수정 가능합니다."
                 )
             else:
                 self.holidays_input.clear()
                 QMessageBox.information(
                     self, "공휴일 자동 감지",
-                    f"{self._year}년 {self._month}월에는 공휴일이 없습니다."
+                    f"{sd.strftime('%Y.%m.%d')} ~ {ed.strftime('%Y.%m.%d')} 기간에는 공휴일이 없습니다."
                 )
         except ImportError:
             QMessageBox.warning(

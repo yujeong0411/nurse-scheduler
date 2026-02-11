@@ -1,13 +1,11 @@
 """메인 윈도우 - 탭 컨테이너"""
-from PyQt6.QtWidgets import QMainWindow, QTabWidget, QStatusBar
-from PyQt6.QtGui import QFont, QIcon
-from PyQt6.QtCore import Qt
+from PyQt6.QtWidgets import QMainWindow, QTabWidget
 from engine.models import DataManager
 from ui.setup_tab import SetupTab
 from ui.request_tab import RequestTab
 from ui.rules_tab import RulesTab
 from ui.result_tab import ResultTab
-from ui.styles import APP_STYLE, FONT_FAMILY
+from ui.styles import APP_STYLE
 
 
 class MainWindow(QMainWindow):
@@ -51,18 +49,18 @@ class MainWindow(QMainWindow):
     def _on_tab_changed(self, index):
         if index == 1:  # 요청사항 탭
             nurses = self.setup_tab.get_nurses()
-            year, month = self.setup_tab.get_year_month()
-            self.request_tab.refresh(nurses, year, month)
-            self.statusBar().showMessage(f"{year}년 {month}월 요청사항 편집 중")
+            start_date = self.setup_tab.get_start_date()
+            self.request_tab.refresh(nurses, start_date)
+            self.statusBar().showMessage(f"{start_date.isoformat()} 요청사항 편집 중")
 
         elif index == 2:  # 규칙 탭
-            year, month = self.setup_tab.get_year_month()
-            self.rules_tab.set_year_month(year, month)
+            start_date = self.setup_tab.get_start_date()
+            self.rules_tab.set_start_date(start_date)
 
         elif index == 3:  # 결과 탭
             nurses = self.setup_tab.get_nurses()
             requests = self.request_tab.get_requests()
             rules = self.rules_tab.get_rules()
-            year, month = self.setup_tab.get_year_month()
-            self.result_tab.set_schedule_data(nurses, requests, rules, year, month)
-            self.statusBar().showMessage(f"{year}년 {month}월 | 간호사 {len(nurses)}명 | '근무표 생성' 클릭")
+            start_date = self.setup_tab.get_start_date()
+            self.result_tab.set_schedule_data(nurses, requests, rules, start_date)
+            self.statusBar().showMessage(f"{start_date.isoformat()} | 간호사 {len(nurses)}명 | '근무표 생성' 클릭")

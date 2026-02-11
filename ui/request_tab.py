@@ -1,26 +1,24 @@
 """Tab 2: 요청사항 달력 — 응급실"""
+from datetime import date, timedelta
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QTableWidget,
-    QTableWidgetItem, QComboBox, QPushButton, QHeaderView,
-    QMessageBox, QGroupBox,
+    QTableWidgetItem, QPushButton, QHeaderView,
+    QMessageBox
 )
 from PyQt6.QtCore import Qt
-from PyQt6.QtGui import QColor, QFont, QBrush
+from PyQt6.QtGui import QFont
 from engine.models import Nurse, Request, DataManager
 from ui.styles import (
-    REQUEST_CODES, SHIFT_COLORS, SHIFT_TEXT_COLORS,
-    WEEKEND_BG, FONT_FAMILY,
+    REQUEST_CODES, SHIFT_COLORS,
+    FONT_FAMILY, NoWheelComboBox, WeekSeparatorDelegate
 )
-import calendar
-
 
 class RequestTab(QWidget):
     def __init__(self, data_manager: DataManager):
         super().__init__()
         self.dm = data_manager
         self.nurses: list[Nurse] = []
-        self.year = 2026
-        self.month = 3
+        self.start_date = date(2026, 3, 1)
         self.requests: list[Request] = []
         self._building = False
         self._init_ui()
@@ -30,7 +28,7 @@ class RequestTab(QWidget):
 
         # 상단 정보
         top = QHBoxLayout()
-        self.title_label = QLabel("2026년 2월 개인 요청사항")
+        self.title_label = QLabel("2026년 3월 개인 요청사항")
         self.title_label.setFont(QFont(FONT_FAMILY, 13, QFont.Weight.Bold))
         self.title_label.setStyleSheet("color: #013976;")
         top.addWidget(self.title_label)
@@ -45,32 +43,36 @@ class RequestTab(QWidget):
         # 달력 테이블
         self.table = QTableWidget()
         self.table.setAlternatingRowColors(False)
+        self.table.verticalHeader().setDefaultSectionSize(38)
         self.table.verticalHeader().setVisible(False)
         self.table.setSelectionMode(QTableWidget.SelectionMode.SingleSelection)
         layout.addWidget(self.table)
 
-    def refresh(self, nurses: list[Nurse], year: int, month: int):
+    def refresh(self, nurses: list[Nurse], start_date: date):
         self.nurses = nurses
-        self.year = year
-        self.month = month
-        self.title_label.setText(f"{year}년 {month}월 개인 요청사항")
-        self.requests = self.dm.load_requests(year, month)
+        self.start_date = start_date
+        end_date = start_date + timedelta(days=27)
+        self.title_label.setText(
+            f"{start_date.strftime('%Y.%m.%d')} ~ {end_date.strftime('%Y.%m.%d')} 개인 요청사항"
+        )
+        self.requests = self.dm.load_requests(start_date)
         self._rebuild_table()
 
     def _rebuild_table(self):
         self._building = True
-        num_days = calendar.monthrange(self.year, self.month)[1]
+        num_days = 28
         weekday_names = ["월", "화", "수", "목", "금", "토", "일"]
 
         self.table.clear()
         self.table.setRowCount(len(self.nurses))
         self.table.setColumnCount(num_days + 1)
 
-        # 헤더
+        # 헤더: 실제 날짜 표시
         headers = ["이름"]
         for d in range(1, num_days + 1):
-            wd = calendar.weekday(self.year, self.month, d)
-            headers.append(f"{d}\n({weekday_names[wd]})")
+            dt = self.start_date + timedelta(days=d - 1)
+            wd = dt.weekday()
+            headers.append(f"{dt.month}/{dt.day}\n({weekday_names[wd]})")
         self.table.setHorizontalHeaderLabels(headers)
 
         header = self.table.horizontalHeader()
@@ -78,7 +80,7 @@ class RequestTab(QWidget):
         self.table.setColumnWidth(0, 80)
         for d in range(1, num_days + 1):
             header.setSectionResizeMode(d, QHeaderView.ResizeMode.Fixed)
-            self.table.setColumnWidth(d, 56)
+            self.table.setColumnWidth(d, 78)
 
         # 요청 맵
         req_map = {}
@@ -96,9 +98,9 @@ class RequestTab(QWidget):
 
             for d in range(1, num_days + 1):
                 code = req_map.get((nurse.id, d), "")
-                wd = calendar.weekday(self.year, self.month, d)
+                wd = (self.start_date + timedelta(days=d - 1)).weekday()
 
-                combo = QComboBox()
+                combo = NoWheelComboBox()
                 combo.addItems(REQUEST_CODES)
                 combo.setStyleSheet("font-size: 9pt; border: none;")
 
@@ -114,6 +116,17 @@ class RequestTab(QWidget):
                 self.table.setCellWidget(row, d, combo)
 
             self.table.setRowHeight(row, 30)
+
+        # ── 일요일 컬럼 구분선 적용 ──
+        DAY_START = 1  # 요청탭은 이름(0) 다음이 바로 날짜
+
+        sunday_cols = set()
+        for d in range(1, num_days + 1):
+            if (self.start_date + timedelta(days=d - 1)).weekday() == 6:  # 일요일
+                sunday_cols.add(DAY_START + d - 1)
+
+        self._week_delegate = WeekSeparatorDelegate(sunday_cols, self.table)
+        self.table.setItemDelegate(self._week_delegate)
 
         self._building = False
 
@@ -138,7 +151,7 @@ class RequestTab(QWidget):
         # 스타일 업데이트
         combo = self.table.cellWidget(row, day)
         if combo:
-            wd = calendar.weekday(self.year, self.month, day)
+            wd = (self.start_date + timedelta(days=day - 1)).weekday()
             self._apply_combo_style(combo, code, wd)
 
         # 요청 리스트 업데이트
@@ -150,7 +163,7 @@ class RequestTab(QWidget):
             self.requests.append(Request(nurse_id=nurse.id, day=day, code=code))
 
     def _save_requests(self):
-        self.dm.save_requests(self.requests, self.year, self.month)
+        self.dm.save_requests(self.requests, self.start_date)
         QMessageBox.information(self, "저장", "요청사항이 저장되었습니다.")
 
     def get_requests(self) -> list[Request]:
