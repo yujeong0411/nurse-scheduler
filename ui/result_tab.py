@@ -125,6 +125,7 @@ class ResultTab(QWidget):
             if self.schedule and self.schedule.schedule_data:
                 self._display_schedule()
                 self.dm.save_schedule(self.schedule.schedule_data, self.start_date)
+                self.generate_btn.setVisible(False)
                 self.placeholder.setVisible(False)
                 self.stats_group.setVisible(True)
                 self.regenerate_btn.setVisible(True)

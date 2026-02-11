@@ -46,6 +46,16 @@ from ortools.sat.python import cp_model
 from engine.models import (
     Nurse, Request, Rules, Schedule, ROLE_TIERS, get_sleep_partner_month
 )
+from datetime import datetime
+def _log(message):
+    """실행 파일 위치에 crash.log 파일을 생성하여 로그를 기록합니다."""
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    log_msg = f"[{timestamp}] {message}\n"
+    print(log_msg)  # 터미널에도 출력
+    
+    # EXE 실행 시에도 찾기 쉬운 위치(바탕화면이나 프로그램 폴더)에 로그 생성
+    with open("solver_debug.log", "a", encoding="utf-8") as f:
+        f.write(log_msg)
 
 
 # ══════════════════════════════════════════
@@ -115,12 +125,40 @@ def solve_schedule(
     requests: list[Request],
     rules: Rules,
     start_date: date,
-    timeout_seconds: int = 60,
+    timeout_seconds: int = 180,
+    output_path: str = None  # 경로 파라미터 추가
 ) -> Schedule:
     """OR-Tools CP-SAT으로 최적 근무표 생성 (4주=28일 고정)"""
 
     num_days = 28
     num_nurses = len(nurses)
+
+    # ══════════════════════════════════════════
+    # [추가] 1. 공휴일 데이터 로드 및 진단 로그
+    # ══════════════════════════════════════════
+    import holidays  # 상단에 import가 없다면 추가
+    kr_holidays = holidays.KR(years=start_date.year)
+    holiday_indices = []
+    for d in range(num_days):
+        curr = start_date + timedelta(days=d)
+        # 공휴일이거나 일요일(6)인 경우
+        if curr in kr_holidays or curr.weekday() == 6:
+            holiday_indices.append(d)
+    
+    _log(f"--- 시스템 진단 ---")
+    _log(f"시작 날짜: {start_date}")
+    _log(f"인식된 공휴일/일요일 인덱스: {holiday_indices}")
+    _log(f"--- 데이터 전달 확인 ---")
+    _log(f"1. 시스템(holidays)이 계산한 공휴일: {holiday_indices}")
+    _log(f"2. UI(rules)로부터 넘어온 공휴일 리스트: {rules.public_holidays}")
+    
+    # 만약 rules.public_holidays에 숫자가 있다면 0-based 인덱스로 변환해서 비교
+    ui_holiday_dis = [h - 1 for h in rules.public_holidays]
+    _log(f"3. UI 데이터를 인덱스로 변환: {ui_holiday_dis}")
+    
+    if not holiday_indices:
+        _log("⚠️ 경고: 공휴일 데이터가 하나도 없습니다. H10b 제약조건 충돌 가능성 높음!")
+    # ══════════════════════════════════════════
 
     model = cp_model.CpModel()
 
@@ -298,6 +336,8 @@ def solve_schedule(
 
     # ── H10b. 법휴는 공휴일에만 배치 가능 ──
     public_holiday_dis = set(h - 1 for h in rules.public_holidays if 1 <= h <= num_days)
+    _log(f"최종 적용 공휴일(UI기준): {public_holiday_dis}")
+
     for ni in range(num_nurses):
         for di in range(num_days):
             if di not in public_holiday_dis:
@@ -480,8 +520,8 @@ def solve_schedule(
             if 0 <= di_r < num_days:
                 hard_req_days.add((ni_r, di_r))
 
-    for hday in rules.public_holidays:
-        di = hday - 1
+    for di in public_holiday_dis:
+        # di = hday - 1
         if di < 0 or di >= num_days:
             continue
         for ni in range(num_nurses):
@@ -656,8 +696,18 @@ def solve_schedule(
     solver = cp_model.CpSolver()
     solver.parameters.max_time_in_seconds = timeout_seconds
     solver.parameters.num_workers = 4
-
+    
+    _log("solver.solve() 호출 시작...")
     status = solver.solve(model)
+
+    # solver.parameters.max_time_in_seconds = float(timeout_seconds) # 60초
+    # solver.parameters.num_search_workers = 1 # 병렬 처리로 인한 튕김 방지
+    # solver.parameters.log_search_progress = True
+    # solver.parameters.log_to_stdout = True
+    
+    # _log("solver.solve() 호출 시작...")
+    # status = solver.solve(model)
+    _log(f"솔버 종료 상태: {status} (3:FEASIBLE, 4:OPTIMAL, 0:UNKNOWN)")
 
     # ══════════════════════════════════════════
     # 결과 추출
@@ -669,6 +719,7 @@ def solve_schedule(
 
     if status in (cp_model.OPTIMAL, cp_model.FEASIBLE):
         print("✅ 해를 찾았습니다!")
+        _log("✅ 해를 찾았습니다!")
         for ni, nurse in enumerate(nurses):
             for di in range(num_days):
                 for si in range(NUM_TYPES):
@@ -680,7 +731,7 @@ def solve_schedule(
         _post_process(schedule, nurses, rules)
     else:
         print("❌ 해를 찾을 수 없습니다 (Infeasible). 인원수 설정이나 휴무 조건을 확인하세요.")
-
+        _log("❌ 해를 찾을 수 없습니다 (Infeasible). 인원수 설정이나 휴무 조건을 확인하세요.")
     return schedule
 
 

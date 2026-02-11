@@ -8,5 +8,6 @@ dependencies = [
     "holidays>=0.90",
     "openpyxl>=3.1.5",
     "ortools>=9.15.6755",
+    "pyinstaller>=6.18.0",
     "pyqt6>=6.10.2",
 ]
