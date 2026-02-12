@@ -195,7 +195,7 @@ class Request:
     @property
     def is_hard(self) -> bool:
         """반드시 지켜야 하는 확정 요청인가?"""
-        return self.code in ("주", "법휴", "휴가", "특휴", "생휴", "수면", "공가", "경가", "보수")   # "OFF"는 소프트(S1)로 처리 — H11이 주당 2개 보장
+        return self.code in ("주", "OFF", "법휴", "휴가", "특휴", "생휴", "수면", "공가", "경가", "보수")
 
     @property
     def is_exclude(self) -> bool:
@@ -452,3 +452,9 @@ class DataManager:
         raw = self._load_json(f"schedule_{start_date.isoformat()}.json", {})
         return {int(nid): {int(d): s for d, s in days.items()}
                 for nid, days in raw.items()}
+
+    def save_settings(self, settings: dict):
+        self._save_json("settings.json", settings, backup=False)
+
+    def load_settings(self) -> dict:
+        return self._load_json("settings.json", {})

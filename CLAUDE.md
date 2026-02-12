@@ -19,7 +19,7 @@ uv run python main.py
 build.bat
 ```
 
-Python 3.12+ required. Dependencies: PyQt6, ortools, openpyxl. No test suite exists.
+Python 3.12+ required. Dependencies: PyQt6, ortools, openpyxl, holidays. No test suite exists.
 
 ## Architecture
 
@@ -31,6 +31,7 @@ Python 3.12+ required. Dependencies: PyQt6, ortools, openpyxl. No test suite exi
 - **validator.py** — `validate_change()` checks 16 constraint types for manual cell edits: reverse order (both directions), consecutive work/night limits, NN→2 off, monthly N limit, weekly off, daily staffing minimums, grade/role tier requirements, legal holidays, 4-day week, pregnancy limits, vacation balance.
 - **evaluator.py** — `evaluate_schedule()` scores schedule fairness (0-100, grades A-F) based on shift deviation, night/weekend equity, bad patterns, request fulfillment rate, and rule violations. Returns `violation_details` list with per-nurse and per-day breakdown. Weekend 중2 staffing is excluded from violation checks (중2 is weekday-only).
 - **excel_io.py** — `export_schedule()` writes a two-sheet xlsx (schedule + stats) including 휴가잔여/생휴/잔여수면 columns. `import_nurse_rules()` reads nurse settings from 근무표_규칙.xlsx. `import_requests()` reads calendar grid format. `import_nurses_from_request()` extracts nurse names from request files. `import_prev_schedule()` reads previous month schedule for tail shifts and N counts. All import functions recognize both `"1일"` and `"1"` date header formats.
+- **kr_holidays.py** — Korean public holiday detection using the `holidays` package. `get_holidays_for_period()` returns holidays for a start_date + num_days range (supports periods spanning two months). Used by rules_tab to auto-populate public_holidays.
 
 ### ui/ — PyQt6 widgets, one file per tab
 - **main_window.py** — `MainWindow` with 4-tab `QTabWidget`. Owns `DataManager` and passes it to all tabs. Tab switching triggers data sync via `_on_tab_changed`.
@@ -55,9 +56,13 @@ Python 3.12+ required. Dependencies: PyQt6, ortools, openpyxl. No test suite exi
 
 ## Important Implementation Notes
 
+- **28-day fixed schedule**: All schedules are exactly 28 days (4 weeks) starting from a chosen date, not calendar-month-based. Week ranges are always `[(1,7), (8,14), (15,21), (22,28)]`.
+- **EXE subprocess solver mode**: When packaged as exe, `main.py` supports a `--solve` flag that runs the solver in a subprocess (pickle IPC via temp files) to avoid PyQt6/ortools conflicts. The subprocess writes results to an output pickle file.
+- **ortools must import before PyQt6**: In `main.py`, `ortools.sat.python.cp_model` is imported before PyQt6 to prevent segfaults. This import order is critical.
 - The solver manages all 15 shift/off types directly as CP-SAT variables (no post-processing relabeling needed)
 - 중2 constraints: H2 forces exactly `daily_M` 중2 nurses on weekdays, 0 on weekends. H2a forbids non-중2-role nurses from 중2 shift. Evaluator and grade checks exclude 중2 on weekends.
 - Excel import functions (`import_requests`, `import_nurses_from_request`, `import_prev_schedule`) all recognize both `"X일"` (신청표 format) and `"X"` (내보내기 format) date headers
 - JSON persistence converts nurse IDs and days between `int` keys (in-memory) and `str` keys (JSON) in `save_schedule`/`load_schedule`
 - `DataManager` resolves data directory relative to `engine/` parent when running from source, or relative to exe when packaged
+- Data files are named by start date: `requests_{YYYY-MM-DD}.json`, `schedule_{YYYY-MM-DD}.json`. Shared files: `nurses.json`, `rules.json`. All saved to `data/` with auto-backup to `~/Documents/NurseScheduler_backup/`.
 - Result tab column layout: 이름(0) | 휴가잔여(1) | 잔여수면(2) | 날짜(3~30) | 통계(31~). DAY_START=3.

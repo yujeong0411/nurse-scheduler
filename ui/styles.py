@@ -290,4 +290,51 @@ QCheckBox {
     font-size: 10pt;
     spacing: 8px;
 }
+
+/* =========================
+   메뉴바
+========================= */
+QMenuBar {
+    background-color: #f3f6fa;
+    border-bottom: 1px solid #e3e8ef;
+    font-family: '맑은 고딕';
+    font-size: 10pt;
+    padding: 2px 0;
+}
+
+QMenuBar::item {
+    padding: 6px 14px;
+    border-radius: 6px;
+    margin: 2px 2px;
+}
+
+QMenuBar::item:selected {
+    background-color: #e8f0fb;
+    color: #013976;
+}
+
+QMenu {
+    background-color: white;
+    border: 1px solid #e3e8ef;
+    border-radius: 8px;
+    padding: 4px;
+    font-family: '맑은 고딕';
+    font-size: 10pt;
+}
+
+QMenu::item {
+    padding: 8px 24px;
+    border-radius: 4px;
+}
+
+QMenu::item:selected {
+    background-color: #e8f0fb;
+    color: #013976;
+}
+
+QMenu::separator {
+    height: 1px;
+    background: #e3e8ef;
+    margin: 4px 8px;
+}
 """
