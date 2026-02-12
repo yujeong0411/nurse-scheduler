@@ -34,10 +34,10 @@ class RulesTab(QWidget):
         self.daily_d = self._spin(7)
         self.daily_e = self._spin(8)
         self.daily_n = self._spin(7)
-        # self.daily_m = self._spin(0)  # 중간근무 추가 시
+        self.daily_m = self._spin(1)
         for label, spin in [
             ("D:", self.daily_d),
-            # ("M (중간):", self.daily_m),  # 중간근무 추가 시
+            ("중2 (평일만):", self.daily_m),
             ("E:", self.daily_e),
             ("N:", self.daily_n),
         ]:
@@ -183,6 +183,7 @@ class RulesTab(QWidget):
     def _apply_to_ui(self):
         r = self.rules
         self.daily_d.setText(str(r.daily_D))
+        self.daily_m.setText(str(r.daily_M))
         self.daily_e.setText(str(r.daily_E))
         self.daily_n.setText(str(r.daily_N))
         self.ban_reverse.setChecked(r.ban_reverse_order)
@@ -222,6 +223,7 @@ class RulesTab(QWidget):
 
         self.rules = Rules(
             daily_D=self._get_int(self.daily_d),
+            daily_M=self._get_int(self.daily_m),
             daily_E=self._get_int(self.daily_e),
             daily_N=self._get_int(self.daily_n),
             ban_reverse_order=self.ban_reverse.isChecked(),

@@ -1,5 +1,9 @@
 """메인 윈도우 - 탭 컨테이너"""
 from PyQt6.QtWidgets import QMainWindow, QTabWidget
+from PyQt6.QtGui import QIcon 
+from PyQt6.QtCore import QSize 
+import sys
+import os
 from engine.models import DataManager
 from ui.setup_tab import SetupTab
 from ui.request_tab import RequestTab
@@ -22,23 +26,37 @@ class MainWindow(QMainWindow):
 
         # 탭 위젯
         self.tabs = QTabWidget()
+        self.tabs.setIconSize(QSize(20, 20))
         self.setCentralWidget(self.tabs)
+
+        # --- 아이콘 경로 설정 ---
+        def get_icon(name):
+            # 1. 현재 MainWindow.py의 위치 (./ui/)
+            current_dir = os.path.dirname(os.path.abspath(__file__))
+            
+            # 2. 부모 폴더(최상단 루트)로 한 단계 이동 (../)
+            project_root = os.path.dirname(current_dir)
+            
+            # 3. 루트에 있는 assets/icons 폴더 내의 파일 경로 생성
+            icon_path = os.path.join(project_root, "assets", "icons", name)
+            
+            return QIcon(icon_path)
 
         # Tab 1: 설정
         self.setup_tab = SetupTab(self.dm)
-        self.tabs.addTab(self.setup_tab, "📋 설정")
+        self.tabs.addTab(self.setup_tab, get_icon("settings.svg"), "설정")
 
         # Tab 2: 요청사항
         self.request_tab = RequestTab(self.dm)
-        self.tabs.addTab(self.request_tab, "📅 요청사항")
+        self.tabs.addTab(self.request_tab, get_icon("requests.svg"), "요청사항")
 
         # Tab 3: 규칙
         self.rules_tab = RulesTab(self.dm)
-        self.tabs.addTab(self.rules_tab, "⚙️ 규칙설정")
+        self.tabs.addTab(self.rules_tab, get_icon("rule_settings.svg"), "규칙설정")
 
         # Tab 4: 결과
         self.result_tab = ResultTab(self.dm)
-        self.tabs.addTab(self.result_tab, "📊 결과")
+        self.tabs.addTab(self.result_tab, get_icon("result.svg"), "결과")
 
         # 탭 전환 시 데이터 동기화
         self.tabs.currentChanged.connect(self._on_tab_changed)

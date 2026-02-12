@@ -21,24 +21,22 @@ def evaluate_schedule(schedule: Schedule, rules: Rules) -> dict:
         return empty_result
 
     # ── 개인별 근무 횟수 ──
-    # 중간근무 추가 시: "M": 0 추가, shift in ("D9","D1","중1","중2") → M
     shift_stats = {}
     for nurse in nurses:
-        stats = {"D": 0, "E": 0, "N": 0, "OFF": 0, "총근무": 0}
-        # stats = {"D": 0, "M": 0, "E": 0, "N": 0, "OFF": 0, "총근무": 0}
+        stats = {"D": 0, "중2": 0, "E": 0, "N": 0, "OFF": 0, "총근무": 0}
         for d in range(1, num_days + 1):
             s = schedule.get_shift(nurse.id, d)
             if s == "D":
                 stats["D"] += 1
+            elif s == "중2":
+                stats["중2"] += 1
             elif s == "E":
                 stats["E"] += 1
             elif s == "N":
                 stats["N"] += 1
-            # elif s in ("D9", "D1", "중1", "중2"):  # 중간근무 추가 시
-            #     stats["M"] += 1
             else:
                 stats["OFF"] += 1
-        stats["총근무"] = stats["D"] + stats["E"] + stats["N"]  # + stats["M"]
+        stats["총근무"] = stats["D"] + stats["중2"] + stats["E"] + stats["N"]
         shift_stats[nurse.id] = stats
 
     # ── 편차 ──
@@ -48,7 +46,6 @@ def evaluate_schedule(schedule: Schedule, rules: Rules) -> dict:
         return max(values) - min(values)
 
     d_dev = deviation([shift_stats[n.id]["D"] for n in nurses])
-    # m_dev = deviation([shift_stats[n.id]["M"] for n in nurses])  # 중간근무 추가 시
     e_dev = deviation([shift_stats[n.id]["E"] for n in nurses])
     n_dev = deviation([shift_stats[n.id]["N"] for n in nurses])
     night_deviation = n_dev
@@ -130,7 +127,6 @@ def evaluate_schedule(schedule: Schedule, rules: Rules) -> dict:
                             rule_violations += 1
 
     # 일일 인원
-    # 중간근무 추가 시: m_staff, rules.daily_M 체크 추가
     for d in range(1, num_days + 1):
         d_staff = schedule.get_staff_count(d, "D")
         e_staff = schedule.get_staff_count(d, "E")
@@ -141,9 +137,13 @@ def evaluate_schedule(schedule: Schedule, rules: Rules) -> dict:
             rule_violations += 1
         if n_staff < rules.daily_N:
             rule_violations += 1
+        # 중2: 평일만 체크 (주말은 0이 정상)
+        if not schedule.is_weekend(d):
+            m_staff = schedule.get_staff_count(d, "중2")
+            if m_staff < rules.daily_M:
+                rule_violations += 1
 
-    # 직급
-    # 중간근무 추가 시: ["D", "M", "E", "N"] + M은 중간계열 통합 카운트
+    # 직급 (D/E/N만, 중2 제외)
     for d in range(1, num_days + 1):
         for shift_type in ["D", "E", "N"]:
             chief_cnt = sum(
@@ -259,6 +259,11 @@ def evaluate_schedule(schedule: Schedule, rules: Rules) -> dict:
             cnt = schedule.get_staff_count(d, st)
             if cnt < req_val:
                 violation_details.append(f"{d}일 {st} 인원 {cnt}명 (필요 {req_val})")
+        # 중2: 평일만 체크
+        if not schedule.is_weekend(d):
+            cnt = schedule.get_staff_count(d, "중2")
+            if cnt < rules.daily_M:
+                violation_details.append(f"{d}일 중2 인원 {cnt}명 (필요 {rules.daily_M})")
 
     if viol_penalty > 0:
         deductions.append((
@@ -288,7 +293,6 @@ def evaluate_schedule(schedule: Schedule, rules: Rules) -> dict:
         "score": score,
         "shift_stats": shift_stats,
         "d_deviation": d_dev,
-        # "m_deviation": m_dev,  # 중간근무 추가 시
         "e_deviation": e_dev,
         "n_deviation": n_dev,
         "night_deviation": night_deviation,

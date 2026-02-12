@@ -159,18 +159,17 @@ class ResultTab(QWidget):
         self.table.blockSignals(True)  # cellChanged 시그널 차단
         num_days = self.schedule.num_days
         nurses = self.schedule.nurses
-        stat_cols = ["D", "E", "N", "OFF", "총"]
-        # 중간근무 추가 시: ["D", "M", "E", "N", "OFF", "총"]
+        stat_cols = ["D", "중2", "E", "N", "OFF", "총"]
 
         # 빠른 조회를 위해 요청사항을 딕셔너리로 변환
         # 키: (간호사ID, 날짜), 값: 요청코드
         req_map = {(r.nurse_id, r.day): r.code for r in self.requests}
 
-        # 컬럼 레이아웃: 이름(0) + 휴가(1) + 생휴(2) + 수면(3) + 날짜(4~) + 통계
-        EXTRA_COLS = 3  # 휴가, 생휴, 수면
-        DAY_START = 1 + EXTRA_COLS  # = 4
+        # 컬럼 레이아웃: 이름(0) + 휴가잔여(1) + 잔여수면(2) + 날짜(3~) + 통계
+        EXTRA_COLS = 2  # 휴가잔여, 잔여수면
+        DAY_START = 1 + EXTRA_COLS  # = 3
         total_cols = 1 + EXTRA_COLS + num_days + len(stat_cols)
-        total_rows = len(nurses) + 4  # +1 빈행 +3 집계행
+        total_rows = len(nurses) + 5  # +1 빈행 +4 집계행(D/중2/E/N)
 
         self.table.clear()
         self.table.setRowCount(total_rows)
@@ -187,7 +186,7 @@ class ResultTab(QWidget):
 
         # 헤더: 실제 날짜 표시
         weekday_names = ["월", "화", "수", "목", "금", "토", "일"]
-        headers = ["이름", "휴가", "생휴", "수면"]
+        headers = ["이름", "휴가잔여", "잔여수면"]
         for d in range(1, num_days + 1):
             dt = self.schedule.date_of(d)
             wd = dt.weekday()
@@ -199,9 +198,9 @@ class ResultTab(QWidget):
         header = self.table.horizontalHeader()
         header.setSectionResizeMode(0, QHeaderView.ResizeMode.Fixed)
         self.table.setColumnWidth(0, 80)
-        for c in range(1, DAY_START):  # 휴가/생휴/수면
+        for c in range(1, DAY_START):  # 휴가잔여/잔여수면
             header.setSectionResizeMode(c, QHeaderView.ResizeMode.Fixed)
-            self.table.setColumnWidth(c, 36)
+            self.table.setColumnWidth(c, 60)
         for c in range(DAY_START, DAY_START + num_days):
             header.setSectionResizeMode(c, QHeaderView.ResizeMode.Fixed)
             self.table.setColumnWidth(c, 44)
@@ -227,19 +226,15 @@ class ResultTab(QWidget):
             name_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
             self.table.setItem(row, 0, name_item)
 
-            # 휴가/생휴/수면 (읽기 전용)
-            for ci, val in enumerate([
-                str(nurse.vacation_days) if nurse.vacation_days else "",
-                "",  # 생휴: 결과 표시 후 아래에서 계산
-                "",  # 수면: 결과 표시 후 아래에서 계산
-            ]):
-                item = QTableWidgetItem(val)
+            # 휴가잔여/잔여수면 (읽기 전용, 루프 후 계산)
+            for ci in range(EXTRA_COLS):
+                item = QTableWidgetItem("")
                 item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEditable)
                 item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
                 item.setFont(QFont(FONT_FAMILY, 8))
                 self.table.setItem(row, 1 + ci, item)
 
-            d_cnt, e_cnt, n_cnt, off_cnt = 0, 0, 0, 0
+            d_cnt, 중2_cnt, e_cnt, n_cnt, off_cnt = 0, 0, 0, 0, 0
             menst_cnt, sleep_cnt = 0, 0
 
             for d in range(1, num_days + 1):
@@ -286,23 +281,38 @@ class ResultTab(QWidget):
 
                 if shift == "D":
                     d_cnt += 1
+                elif shift == "중2":
+                    중2_cnt += 1
                 elif shift == "E":
                     e_cnt += 1
                 elif shift == "N":
                     n_cnt += 1
                 else:
                     off_cnt += 1
-                if shift == "생":
+                if shift == "생휴":
                     menst_cnt += 1
                 if shift == "수면":
                     sleep_cnt += 1
 
-            # 생휴/수면 카운트 업데이트
-            self.table.item(row, 2).setText(str(menst_cnt) if menst_cnt else "")
-            self.table.item(row, 3).setText(str(sleep_cnt) if sleep_cnt else "")
+            # 휴가잔여 (col 1)
+            vac_used = sum(
+                1 for d in range(1, num_days + 1)
+                if self.schedule.get_shift(nurse.id, d) == "휴가"
+            )
+            vac_remain = nurse.vacation_days - vac_used
+            vac_item = self.table.item(row, 1)
+            if nurse.vacation_days or vac_used:
+                vac_item.setText(str(vac_remain))
+                if vac_remain < 0:
+                    vac_item.setForeground(QBrush(QColor(200, 0, 0)))
 
-            total_work = d_cnt + e_cnt + n_cnt
-            stat_vals = [d_cnt, e_cnt, n_cnt, off_cnt, total_work]
+            # 잔여수면 (col 2): 발생 - 사용
+            sleep_remain = self._calc_sleep_remain(nurse, n_cnt, sleep_cnt)
+            sleep_item = self.table.item(row, 2)
+            sleep_item.setText(str(sleep_remain) if sleep_remain > 0 else "")
+
+            total_work = d_cnt + 중2_cnt + e_cnt + n_cnt
+            stat_vals = [d_cnt, 중2_cnt, e_cnt, n_cnt, off_cnt, total_work]
             stat_start = DAY_START + num_days
             for i, val in enumerate(stat_vals):
                 stat_item = QTableWidgetItem(str(val))
@@ -322,8 +332,7 @@ class ResultTab(QWidget):
         self.table.setRowHeight(sep_row, 8)
 
         # 집계 행
-        # 중간근무 추가 시: ["D", "M", "E", "N"]
-        for si, shift_type in enumerate(["D", "E", "N"]):
+        for si, shift_type in enumerate(["D", "중2", "E", "N"]):
             agg_row = len(nurses) + 1 + si
             label_item = QTableWidgetItem(f"{shift_type} 인원")
             label_item.setFont(QFont(FONT_FAMILY, 8, QFont.Weight.Bold))
@@ -344,6 +353,7 @@ class ResultTab(QWidget):
                 # 인원 부족 체크
                 min_req = {
                     "D": self.rules.daily_D,
+                    "중2": self.rules.daily_M,
                     "E": self.rules.daily_E,
                     "N": self.rules.daily_N,
                 }[shift_type]
@@ -373,8 +383,8 @@ class ResultTab(QWidget):
     def _on_cell_changed(self, row, col):
         if self._building or not self.schedule:
             return
-        # 날짜 컬럼: 4 ~ 4+num_days-1 (이름/휴가/생휴/수면 이후)
-        DAY_START = 4
+        # 날짜 컬럼: 3 ~ 3+num_days-1 (이름/휴가잔여/잔여수면 이후)
+        DAY_START = 3
         num_days = self.schedule.num_days
         if row >= len(self.schedule.nurses):
             return
@@ -438,13 +448,14 @@ class ResultTab(QWidget):
         self.table.blockSignals(True)
         num_days = self.schedule.num_days
         nurses = self.schedule.nurses
-        DAY_START = 4
+        DAY_START = 3
 
         # 집계 행
-        for si, shift_type in enumerate(["D", "E", "N"]):
+        for si, shift_type in enumerate(["D", "중2", "E", "N"]):
             agg_row = len(nurses) + 1 + si
             min_req = {
                 "D": self.rules.daily_D,
+                "중2": self.rules.daily_M,
                 "E": self.rules.daily_E,
                 "N": self.rules.daily_N,
             }[shift_type]
@@ -472,6 +483,10 @@ class ResultTab(QWidget):
                 1 for d in range(1, num_days + 1)
                 if self.schedule.get_shift(nurse.id, d) == "D"
             )
+            중2_cnt = sum(
+                1 for d in range(1, num_days + 1)
+                if self.schedule.get_shift(nurse.id, d) == "중2"
+            )
             e_cnt = sum(
                 1 for d in range(1, num_days + 1)
                 if self.schedule.get_shift(nurse.id, d) == "E"
@@ -480,30 +495,52 @@ class ResultTab(QWidget):
                 1 for d in range(1, num_days + 1)
                 if self.schedule.get_shift(nurse.id, d) == "N"
             )
-            off_cnt = num_days - d_cnt - e_cnt - n_cnt
-            total_work = d_cnt + e_cnt + n_cnt
+            off_cnt = num_days - d_cnt - 중2_cnt - e_cnt - n_cnt
+            total_work = d_cnt + 중2_cnt + e_cnt + n_cnt
 
-            for i, val in enumerate([d_cnt, e_cnt, n_cnt, off_cnt, total_work]):
+            for i, val in enumerate([d_cnt, 중2_cnt, e_cnt, n_cnt, off_cnt, total_work]):
                 item = self.table.item(row, stat_start + i)
                 if item:
                     item.setText(str(val))
 
-            # 생휴/수면 카운트 업데이트
-            menst_cnt = sum(
+            # 휴가잔여 (col 1)
+            vac_used = sum(
                 1 for d in range(1, num_days + 1)
-                if self.schedule.get_shift(nurse.id, d) == "생"
+                if self.schedule.get_shift(nurse.id, d) == "휴가"
             )
+            vac_remain = nurse.vacation_days - vac_used
+            vac_item = self.table.item(row, 1)
+            if vac_item:
+                if nurse.vacation_days or vac_used:
+                    vac_item.setText(str(vac_remain))
+                    if vac_remain < 0:
+                        vac_item.setForeground(QBrush(QColor(200, 0, 0)))
+                    else:
+                        vac_item.setForeground(QBrush(QColor(0, 0, 0)))
+                else:
+                    vac_item.setText("")
+
+            # 잔여수면 (col 2)
             sleep_cnt = sum(
                 1 for d in range(1, num_days + 1)
                 if self.schedule.get_shift(nurse.id, d) == "수면"
             )
-            for ci, cnt in [(2, menst_cnt), (3, sleep_cnt)]:
-                item = self.table.item(row, ci)
-                if item:
-                    item.setText(str(cnt) if cnt else "")
+            sleep_item = self.table.item(row, 2)
+            if sleep_item:
+                sleep_remain = self._calc_sleep_remain(nurse, n_cnt, sleep_cnt)
+                sleep_item.setText(str(sleep_remain) if sleep_remain > 0 else "")
 
         self.table.blockSignals(False)
         self._building = False
+
+    def _calc_sleep_remain(self, nurse, n_count, sleep_used):
+        """잔여수면 계산: 발생(이번달 + 이월) - 사용"""
+        earned = 0
+        if n_count >= self.rules.sleep_N_monthly:
+            earned += 1
+        if nurse.pending_sleep:
+            earned += 1
+        return earned - sleep_used
 
     # ══════════════════════════════════════════
     # 통계
@@ -535,15 +572,24 @@ class ResultTab(QWidget):
 
             self.stats_label.setText("  |  ".join(lines))
 
-            # 역순 패턴
+            # 역순 패턴 + 위반 상세
+            detail_parts = []
             bad = result.get("bad_patterns", {})
             if bad:
-                self.pattern_label.setText(
+                detail_parts.append(
                     "⚠️ 역순 패턴: " +
                     ", ".join(f"{k} {v}건" for k, v in bad.items())
                 )
             else:
-                self.pattern_label.setText("✅ 역순 패턴 없음")
+                detail_parts.append("✅ 역순 패턴 없음")
+
+            violations = result.get("violation_details", [])
+            if violations:
+                detail_parts.append(
+                    f"\n⚠️ 규칙 위반 상세 ({len(violations)}건):\n" +
+                    "\n".join(f"  · {v}" for v in violations)
+                )
+            self.pattern_label.setText("\n".join(detail_parts))
 
         except Exception:
             self.stats_label.setText("")

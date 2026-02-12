@@ -1,6 +1,6 @@
 """데이터 모델 정의 — 응급실 간호사 근무표
 
-근무 3종: D, E, N
+근무 4종: D, E, N, 중2  (현재)
 # 중간근무 확장 시: D, D9, D1, 중1, 중2, E, N (7종)
 # D=주간, M(D9/D1/중1/중2)=중간, E=저녁, N=야간
 휴무 11종: 주, OFF, POFF, 법휴, 수면, 생휴, 휴가, 특휴, 공가, 경가, 보수
@@ -17,7 +17,7 @@ import os
 # ══════════════════════════════════════════
 
 # 근무 코드
-WORK_SHIFTS = ["D", "E", "N"]  # "D9", "D1", "중1", "중2" 추후 추가
+WORK_SHIFTS = ["D", "E", "N", "중2"] 
 # WORK_SHIFTS = ["D", "D9", "D1", "중1", "중2", "E", "N"]  # 중간근무 포함 시
 
 # 휴무 코드
@@ -73,13 +73,14 @@ def sleep_expires_month(month: int) -> int:
 # D → E → N  (중간근무 추가 시: D → M → E → N)
 SHIFT_ORDER = {
     "D": 1,
-    # "D9": 2, "D1": 2, "중1": 2, "중2": 2,  # 중간 계열 (M)
-    "E": 2,   # → 3 when 중간근무 추가
-    "N": 3,   # → 4 when 중간근무 추가
+    "중2": 2,
+    # "D9": 2, "D1": 2, "중1": 2,  # 중간 계열 (M)
+    "E": 3,   # → 3 when 중간근무 추가
+    "N": 4,   # → 4 when 중간근무 추가
 }
 
 # 역할(비고1) 목록
-ROLES = ["", "책임만", "외상", "혼자 관찰불가", "혼자 관찰", "급성구역", "준급성", "격리구역"]
+ROLES = ["", "책임만", "외상", "혼자 관찰불가", "혼자 관찰", "급성구역", "준급성", "격리구역", "중2"]
 
 # 직급(비고2) 목록
 GRADES = ["", "책임", "서브차지"]
@@ -129,6 +130,10 @@ class Nurse:
     pending_sleep: bool = False  # 전월(홀수월)에서 발생한 미사용 수면 (짝수월에서만 유효)
     menstrual_used: bool = False # 이번달 생휴 이미 사용 여부
 
+    # 이전 달 마지막 5일 근무 (월 경계 제약용, 가장 오래된 순)
+    # 예: ["E", "N", "OFF", "N", "D"]
+    prev_tail_shifts: list = field(default_factory=list)
+
     note: str = ""
 
     def to_dict(self):
@@ -136,9 +141,9 @@ class Nurse:
         return {
             "id": self.id,
             "name": self.name,
-            "role": self.role, 
+            "role": self.role,
             "grade": self.grade,
-            "is_pregnant": self.is_pregnant, 
+            "is_pregnant": self.is_pregnant,
             "is_male": self.is_male,
             "is_4day_week": self.is_4day_week,
             "fixed_weekly_off": self.fixed_weekly_off,
@@ -146,6 +151,7 @@ class Nurse:
             "prev_month_N": self.prev_month_N,
             "pending_sleep": self.pending_sleep,
             "menstrual_used": self.menstrual_used,
+            "prev_tail_shifts": self.prev_tail_shifts,
             "note": self.note,
         }
 
@@ -154,7 +160,8 @@ class Nurse:
     def from_dict(cls, d):
         """복원용"""
         valid = {"id", "name", "role", "grade", "is_pregnant", "is_male",
-                 "is_4day_week", "fixed_weekly_off",  "vacation_days", "prev_month_N", "pending_sleep",  "menstrual_used", "note"}
+                 "is_4day_week", "fixed_weekly_off",  "vacation_days", "prev_month_N", "pending_sleep",  "menstrual_used",
+                 "prev_tail_shifts", "note"}
         filtered = {k: v for k, v in d.items() if k in valid}
         return cls(**filtered)
 
@@ -165,10 +172,9 @@ class Request:
 
     code 종류:
       근무 희망: D, E, N, (D9, D1, 중1, 중2)
-      휴무 확정: 법휴, 휴, 특휴, 공, 경
-      휴무 희망: OFF
+      휴무 희망: OFF, 법휴, 휴가, 특휴, 공가, 경가, 보수, 생휴, 수면
       제외 요청: D 제외, E 제외, N 제외
-      자동 발생: 주, 수면, 생, POFF (솔버가 배정)
+      자동 발생: 주, 수면, 생휴, POFF (솔버가 배정)
     """
     nurse_id: int                   # 어느 간호사가
     day: int                        # 며칠에 (1~31)
@@ -232,6 +238,7 @@ class Rules:
     daily_D: int = 7            # D 근무 인원
     daily_E: int = 8            # E 근무 인원
     daily_N: int = 7            # N 근무 인원
+    daily_M: int= 1             # 중2 근무 인원
 
     # ── 야간(N) 제한 ──
     max_N_per_month: int = 6    # 월 N 최대 횟수
@@ -265,7 +272,7 @@ class Rules:
 
     def get_daily_staff(self, shift: str) -> int:
         """근무별 일일 필요 인원"""
-        return {"D": self.daily_D, "E": self.daily_E, "N": self.daily_N}.get(shift, 0)
+        return {"D": self.daily_D, "중2": self.daily_M, "E": self.daily_E, "N": self.daily_N}.get(shift, 0)
 
     def to_dict(self):
         return {k: v for k, v in self.__dict__.items()}

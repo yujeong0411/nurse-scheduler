@@ -43,21 +43,27 @@ FILLS = {
     "특휴": PatternFill(start_color="fcfb92", fill_type="solid"),
     "공가":   PatternFill(start_color="fcfb92", fill_type="solid"),
     "경가":   PatternFill(start_color="fcfb92", fill_type="solid"),
+    "보수":   PatternFill(start_color="fcfb92", fill_type="solid")
 }
 FONTS = {
-    "D":   Font(color="0775fa", bold=True, size=9),
+    "D":   Font(bold=True, size=9),
     # "D9":  Font(color="2E75B6", bold=True, size=9),  # 중간 계열
     # "D1":  Font(color="2E75B6", bold=True, size=9),  # 중간 계열
     # "중1":  Font(color="BF8F00", bold=True, size=9),  # 중간 계열
-    # "중2":  Font(color="BF8F00", bold=True, size=9),  # 중간 계열
-    "E":   Font(color="d17804", bold=True, size=9),
+    # "중2":  Font(color="07a336", bold=True, size=9),
+    "E":   Font(bold=True, size=9),
     "N":   Font(color="d61506", bold=True, size=9),
-    # "OFF": Font(color="548235", bold=True, size=9),
-    # "주":   Font(color="006100", bold=True, size=9),
-    # "법휴": Font(color="9C5700", bold=True, size=9),
-    # "생휴":   Font(color="CC0000", bold=True, size=9),
-    # "수면": Font(color="674EA7", bold=True, size=9),
-    # "POFF": Font(color="BF6000", bold=True, size=9),
+    "OFF": Font(bold=True, size=9),
+    "주":   Font(bold=True, size=9),
+    "법휴": Font(bold=True, size=9),
+    "생휴":   Font(bold=True, size=9),
+    "수면": Font(bold=True, size=9),
+    "POFF": Font(bold=True, size=9),
+    "휴가": Font(bold=True, size=9),
+    "특휴": Font(bold=True, size=9),
+    "공가": Font(bold=True, size=9),
+    "경가": Font(bold=True, size=9),
+    "보수": Font(bold=True, size=9),
 }
 
 HEADER_FILL = PatternFill(start_color="013976", fill_type="solid")
@@ -100,8 +106,7 @@ def export_schedule(schedule: Schedule, rules: Rules, filepath: str):
     ws.cell(1, 1).alignment = Alignment(horizontal="center")
 
     # 헤더 (행3)
-    stat_cols = ["D", "E", "N", "OFF", "총근무", "주말"]
-    # 중간근무 추가 시: ["D", "M", "E", "N", "OFF", "총근무", "주말"]
+    stat_cols = ["D", "중2", "E", "N", "OFF", "총 근무", "주말", "휴가잔여", "생휴", "잔여수면",]
     headers = ["이름"] + [f"{d}" for d in range(1, num_days + 1)] + stat_cols
     for c, h in enumerate(headers, 1):
         cell = ws.cell(3, c, h)
@@ -132,8 +137,7 @@ def export_schedule(schedule: Schedule, rules: Rules, filepath: str):
         ws.cell(row, 1).alignment = CENTER
         ws.cell(row, 1).border = THIN_BORDER
 
-        d_cnt, e_cnt, n_cnt, off_cnt = 0, 0, 0, 0
-        # m_cnt = 0  # 중간근무 추가 시
+        d_cnt, 중2_cnt, e_cnt, n_cnt, off_cnt = 0, 0, 0, 0, 0
 
         for d in range(1, num_days + 1):
             shift = schedule.get_shift(nurse.id, d)
@@ -150,23 +154,34 @@ def export_schedule(schedule: Schedule, rules: Rules, filepath: str):
 
             if shift == "D":
                 d_cnt += 1
+            elif shift == "중2":
+                중2_cnt += 1
             elif shift == "E":
                 e_cnt += 1
             elif shift == "N":
                 n_cnt += 1
-            # elif shift in ("D9", "D1", "중1", "중2"):  # 중간근무 추가 시
-            #     m_cnt += 1
             elif shift in OFF_TYPES or shift == "OFF":
                 off_cnt += 1
 
-        total_work = d_cnt + e_cnt + n_cnt  # + m_cnt
+        total_work = d_cnt + 중2_cnt + e_cnt + n_cnt
         wk_work = sum(
             1 for d in weekend_days
             if schedule.get_shift(nurse.id, d) in WORK_SHIFTS
         )
 
-        stat_vals = [d_cnt, e_cnt, n_cnt, off_cnt, total_work, wk_work]
-        # 중간근무 추가 시: [d_cnt, m_cnt, e_cnt, n_cnt, off_cnt, total_work, wk_work]
+        # 휴가잔여/생휴/잔여수면 계산
+        vac_used = sum(1 for d in range(1, num_days + 1)
+                       if schedule.get_shift(nurse.id, d) == "휴가")
+        vac_remain = nurse.vacation_days - vac_used
+        menst_cnt = sum(1 for d in range(1, num_days + 1)
+                        if schedule.get_shift(nurse.id, d) == "생휴")
+        sleep_cnt = sum(1 for d in range(1, num_days + 1)
+                        if schedule.get_shift(nurse.id, d) == "수면")
+        sleep_earned = (1 if n_cnt >= rules.sleep_N_monthly else 0) + (1 if nurse.pending_sleep else 0)
+        sleep_remain = sleep_earned - sleep_cnt
+
+        stat_vals = [d_cnt, 중2_cnt, e_cnt, n_cnt, off_cnt, total_work, wk_work,
+                     vac_remain, menst_cnt if menst_cnt else "", sleep_remain if sleep_remain > 0 else ""]
         for j, val in enumerate(stat_vals):
             cell = ws.cell(row, num_days + 2 + j, val)
             cell.alignment = CENTER
@@ -174,9 +189,8 @@ def export_schedule(schedule: Schedule, rules: Rules, filepath: str):
             cell.font = Font(bold=True, size=9)
 
     # 집계 행
-    # 중간근무 추가 시: ["D", "M", "E", "N"]
     sep_row = 5 + len(nurses)
-    for si, shift_type in enumerate(["D", "E", "N"]):
+    for si, shift_type in enumerate(["D", "중2", "E", "N"]):
         agg_row = sep_row + 1 + si
         ws.cell(agg_row, 1, f"{shift_type} 인원")
         ws.cell(agg_row, 1).font = Font(bold=True, size=9)
@@ -200,7 +214,7 @@ def export_schedule(schedule: Schedule, rules: Rules, filepath: str):
     # 컬럼 너비
     ws.column_dimensions["A"].width = 12
     for d in range(1, num_days + 1):
-        ws.column_dimensions[get_column_letter(d + 1)].width = 5
+        ws.column_dimensions[get_column_letter(d + 1)].width = 6
     for j in range(len(stat_cols)):
         ws.column_dimensions[get_column_letter(num_days + 2 + j)].width = 7
 
@@ -209,9 +223,8 @@ def export_schedule(schedule: Schedule, rules: Rules, filepath: str):
     ws2.cell(1, 1, f"{start_date.strftime('%Y.%m.%d')} ~ {end_date.strftime('%Y.%m.%d')} 개인별 통계")
     ws2.cell(1, 1).font = Font(bold=True, size=14, color="013976")
 
-    stat_headers = ["이름", "직급", "역할", "D", "E", "N",
-                    "OFF", "총근무", "N비율", "주말근무"]
-    # 중간근무 추가 시: "D", "M", "E", "N", ...
+    stat_headers = ["이름", "직급", "역할", "D", "중2", "E", "N",
+                    "OFF", "총근무", "N비율", "주말근무", "휴가잔여", "생휴", "잔여수면"]
     for c, h in enumerate(stat_headers, 1):
         cell = ws2.cell(3, c, h)
         cell.fill = HEADER_FILL
@@ -224,22 +237,37 @@ def export_schedule(schedule: Schedule, rules: Rules, filepath: str):
             1 for d in range(1, num_days + 1)
             if schedule.get_shift(nurse.id, d) == "D"
         )
-        # m_cnt = sum(... in ("D9","D1","중1","중2"))  # 중간근무 추가 시
+        중2_cnt = sum(
+            1 for d in range(1, num_days + 1)
+            if schedule.get_shift(nurse.id, d) == "중2"
+        )
         e_cnt = sum(
             1 for d in range(1, num_days + 1)
             if schedule.get_shift(nurse.id, d) == "E"
         )
         n_cnt = schedule.get_day_count(nurse.id, "N")
-        off_cnt = num_days - d_cnt - e_cnt - n_cnt  # - m_cnt
-        total_work = d_cnt + e_cnt + n_cnt  # + m_cnt
+        off_cnt = num_days - d_cnt - 중2_cnt - e_cnt - n_cnt
+        total_work = d_cnt + 중2_cnt + e_cnt + n_cnt
         n_ratio = f"{n_cnt / total_work * 100:.0f}%" if total_work > 0 else "0%"
         wk_work = sum(
             1 for d in weekend_days
             if schedule.get_shift(nurse.id, d) in WORK_SHIFTS
         )
 
+        # 휴가잔여/생휴/수면 계산
+        vac_used = sum(1 for d in range(1, num_days + 1)
+                       if schedule.get_shift(nurse.id, d) == "휴가")
+        vac_remain = nurse.vacation_days - vac_used
+        menst_cnt = sum(1 for d in range(1, num_days + 1)
+                        if schedule.get_shift(nurse.id, d) == "생휴")
+        sleep_cnt = sum(1 for d in range(1, num_days + 1)
+                        if schedule.get_shift(nurse.id, d) == "수면")
+        sleep_earned = (1 if n_cnt >= rules.sleep_N_monthly else 0) + (1 if nurse.pending_sleep else 0)
+        sleep_remain = sleep_earned - sleep_cnt
+
         data = [nurse.name, nurse.grade or "일반", nurse.role or "-",
-                d_cnt, e_cnt, n_cnt, off_cnt, total_work, n_ratio, wk_work]
+                d_cnt, 중2_cnt, e_cnt, n_cnt, off_cnt, total_work, n_ratio, wk_work,
+                vac_remain, menst_cnt if menst_cnt else "", sleep_remain if sleep_remain > 0 else ""]
         for c, val in enumerate(data, 1):
             cell = ws2.cell(row, c, val)
             cell.alignment = CENTER
@@ -363,7 +391,7 @@ def _normalize_code(val: str) -> str | None:
     exact_map = {
         "D": "D", "E": "E", "N": "N",
         "D9": "D", "D1": "D",
-        "중1": "E", "중2": "E",
+        "중1": "중1", "중2": "중2",
         "OFF": "OFF", "오프": "OFF",
         "주": "주", "주휴": "주",
         "법": "법휴", "법휴": "법휴",
@@ -436,14 +464,17 @@ def import_requests(
     for row in ws.iter_rows(min_row=1, max_row=10):
         for cell in row:
             val = str(cell.value).strip() if cell.value else ""
-            match = re.match(r"^(\d{1,2})일$", val)
-            if match:
-                d = int(match.group(1))
+            # "1일" → "1", "2일" → "2" 변환 후 숫자 체크
+            raw = val[:-1].strip() if val.endswith("일") else val
+            try:
+                d = int(raw)
                 if 1 <= d <= 31:
                     if header_row is None:
                         header_row = cell.row
                     if cell.row == header_row:
                         day_cols[d] = cell.column
+            except ValueError:
+                pass
 
     if not header_row or not day_cols:
         wb.close()
@@ -489,7 +520,8 @@ def import_requests(
     # ── 데이터 읽기 ──
     requests = []
     weekly_off_map = {}
-    stop_words = {"off", "주", "수면", "생휴", "vac", "공가", "총"}
+    stop_words = {"off", "주", "수면", "생휴", "vac", "공가", "총",
+                  "d 인원", "중2 인원", "e 인원", "n 인원", "요일"}
 
     nid_counter = max([n.id for n in nurses], default=0) + 1 # 새로운 ID 시작점
     
@@ -497,8 +529,10 @@ def import_requests(
         # 이름
         name_cell = row[name_col - 1] if name_col - 1 < len(row) else None
         name = str(name_cell.value).strip() if name_cell and name_cell.value else ""
-        if not name or name.lower() in stop_words:
+        if not name:
             continue
+        if name.lower() in stop_words or "인원" in name:
+            break  # 집계 행 도달 → 종료
         if name not in nurse_name_map:
             new_nurse = Nurse(id=nid_counter, name=name)
             nurses.append(new_nurse)        # 원본 리스트에 추가
@@ -576,12 +610,17 @@ def import_nurses_from_request(filepath: str) -> list[str]:
     for row in ws.iter_rows(min_row=1, max_row=10):
         for cell in row:
             val = str(cell.value).strip() if cell.value else ""
-            if re.match(r"^\d{1,2}일$", val):
-                if header_row is None:
-                    header_row = cell.row
-                if cell.row == header_row:
-                    if min_day_col is None or cell.column < min_day_col:
-                        min_day_col = cell.column
+            raw = val[:-1].strip() if val.endswith("일") else val
+            try:
+                d = int(raw)
+                if 1 <= d <= 31:
+                    if header_row is None:
+                        header_row = cell.row
+                    if cell.row == header_row:
+                        if min_day_col is None or cell.column < min_day_col:
+                            min_day_col = cell.column
+            except ValueError:
+                pass
         if header_row:
             break
 
@@ -615,16 +654,138 @@ def import_nurses_from_request(filepath: str) -> list[str]:
 
     # ── 이름 추출 ──
     names = []
-    stop_words = {"off", "주", "수면", "생휴", "vac", "공가", "총"}
+    stop_words = {"off", "주", "수면", "생휴", "vac", "공가", "총",
+                  "d 인원", "중2 인원", "e 인원", "n 인원", "요일"}
 
     for row in ws.iter_rows(min_row=data_start):
         cell = row[name_col - 1] if name_col - 1 < len(row) else None
         val = str(cell.value).strip() if cell and cell.value else ""
         if not val:
             continue
-        if val.lower() in stop_words:
+        if val.lower() in stop_words or "인원" in val:
             break  # 집계 행 도달
         names.append(val)
 
     wb.close()
     return names
+
+
+# ══════════════════════════════════════════
+# 가져오기: 이전 달 근무표 → 마지막 5일 근무
+# ══════════════════════════════════════════
+
+def import_prev_schedule(
+    filepath: str,
+    nurse_names: list[str],
+    tail_days: int = 5,
+) -> tuple[dict[str, list[str]], dict[str, int]]:
+    """이전 달 근무표 엑셀에서 마지막 tail_days일의 근무 + 전체 N 횟수 추출
+
+    export_schedule 형식 기준:
+      행3: 헤더 (이름, 1~28, 통계...)
+      행5+: 간호사별 (A열: 이름, B~AC열: 근무)
+
+    Args:
+        filepath: 엑셀 파일 경로
+        nurse_names: 매칭할 간호사 이름 리스트
+        tail_days: 추출할 마지막 일수 (기본 5)
+
+    Returns:
+        (tail_shifts, n_counts)
+        - tail_shifts: {이름: [근무코드 리스트]} (가장 오래된 순)
+        - n_counts: {이름: 전월 N 총 횟수}
+    """
+    wb = load_workbook(filepath, read_only=True, data_only=True)
+    ws = wb.active
+
+    # ── 날짜 헤더 행 찾기 ("1"/"1일" 등) ──
+    header_row = None
+    day_cols = {}
+
+    for row in ws.iter_rows(min_row=1, max_row=10):
+        for cell in row:
+            val = str(cell.value).strip() if cell.value else ""
+            # "1일" → "1", "2일" → "2" 변환 후 숫자 체크
+            raw = val[:-1].strip() if val.endswith("일") else val
+            try:
+                d = int(raw)
+                if 1 <= d <= 31:
+                    if header_row is None:
+                        header_row = cell.row
+                    if cell.row == header_row:
+                        day_cols[d] = cell.column
+            except ValueError:
+                pass
+
+    if not header_row or not day_cols:
+        wb.close()
+        return {}, {}
+
+    # ── 이름 열 찾기 (날짜 열 이전에서 검색) ──
+    min_day_col = min(day_cols.values())
+    name_col = 1  # 기본 A열
+
+    for search_row in range(max(1, header_row - 1), header_row + 3):
+        for row in ws.iter_rows(min_row=search_row, max_row=search_row,
+                                max_col=min_day_col - 1):
+            for cell in row:
+                val = str(cell.value).strip() if cell.value else ""
+                if val == "이름":
+                    name_col = cell.column
+
+    # ── 데이터 시작 행 (요일 행 등 건너뛰기) ──
+    data_start = header_row + 1
+    for check in ws.iter_rows(min_row=header_row + 1,
+                              max_row=min(header_row + 3, ws.max_row),
+                              max_col=min_day_col + 6):
+        for cell in check:
+            val = str(cell.value).strip() if cell.value else ""
+            if val in ("이름", "일", "월", "화", "수", "목", "금", "토"):
+                data_start = check[0].row + 1
+                break
+        else:
+            continue
+        break
+
+    max_day = max(day_cols.keys())
+    all_day_range = sorted(day_cols.keys())
+    tail_start = max(1, max_day - tail_days + 1)
+    tail_day_range = [d for d in range(tail_start, max_day + 1) if d in day_cols]
+
+    name_set = set(n.strip() for n in nurse_names)
+    tail_result = {}
+    n_counts = {}
+    stop_words = {"요일", "이름", "일", "월", "화", "수", "목", "금", "토",
+                  "off", "주", "수면", "생휴", "vac", "공가", "총",
+                  "d 인원", "중2 인원", "e 인원", "n 인원"}
+
+    for row in ws.iter_rows(min_row=data_start):
+        cell = row[name_col - 1] if name_col - 1 < len(row) else None
+        name = str(cell.value).strip() if cell and cell.value else ""
+        if not name or name.lower() in stop_words:
+            continue
+        if name not in name_set:
+            continue
+
+        # 마지막 tail_days일 근무
+        shifts = []
+        for d in tail_day_range:
+            col = day_cols[d]
+            c = row[col - 1] if col - 1 < len(row) else None
+            val = str(c.value).strip() if c and c.value else ""
+            code = _normalize_code(val) if val else ""
+            shifts.append(code if code else val)
+        tail_result[name] = shifts
+
+        # 전체 N 횟수
+        n_count = 0
+        for d in all_day_range:
+            col = day_cols[d]
+            c = row[col - 1] if col - 1 < len(row) else None
+            val = str(c.value).strip() if c and c.value else ""
+            if val == "N":
+                n_count += 1
+        n_counts[name] = n_count
+
+    wb.close()
+    return tail_result, n_counts

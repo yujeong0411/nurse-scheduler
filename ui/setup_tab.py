@@ -4,7 +4,8 @@ from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QGroupBox, QLabel,
     QComboBox, QTableWidget, QTableWidgetItem,
     QPushButton, QCheckBox, QHeaderView, QAbstractItemView,
-    QMessageBox, QFileDialog, QLineEdit, QDateEdit
+    QMessageBox, QFileDialog, QLineEdit, QDateEdit, QDialog,
+    QDialogButtonBox
 )
 from PyQt6.QtCore import Qt, pyqtSignal, QDate
 from PyQt6.QtGui import QFont, QIntValidator
@@ -94,6 +95,11 @@ class SetupTab(QWidget):
         self.import_req_btn.clicked.connect(self._import_request_excel)
         btn_layout.addWidget(self.import_req_btn)
 
+        self.prev_shift_btn = QPushButton("이전 근무 불러오기")
+        self.prev_shift_btn.setObjectName("secondaryBtn")
+        self.prev_shift_btn.clicked.connect(self._open_prev_shift_dialog)
+        btn_layout.addWidget(self.prev_shift_btn)
+
         btn_layout.addStretch()
 
         self.count_label = QLabel("총 0명")
@@ -112,8 +118,15 @@ class SetupTab(QWidget):
         self.table.setColumnCount(NUM_COLS)
         self.table.setHorizontalHeaderLabels(headers)
 
-        
-        # 이름 
+        # 헤더 툴팁
+        self.table.horizontalHeaderItem(COL_PREV_N).setToolTip(
+            "직접 입력하거나, '이전 근무 불러오기'로\n이전 달 근무표 엑셀에서 자동 반영됩니다."
+        )
+        self.table.horizontalHeaderItem(COL_SLEEP).setToolTip(
+            "직접 체크하거나, '이전 근무 불러오기'로\n이전 달 근무표 엑셀에서 자동 반영됩니다."
+        )
+
+        # 이름
         header = self.table.horizontalHeader()
         header.setSectionResizeMode(COL_NAME, QHeaderView.ResizeMode.Stretch)
         self.table.setColumnWidth(COL_NAME, 60)
@@ -150,7 +163,8 @@ class SetupTab(QWidget):
         # ── 하단 안내 ──
         info_label = QLabel(
             "💡 '규칙 엑셀 불러오기': 근무표_규칙.xlsx (이름, 역할, 직급, 특수조건)\n"
-            "💡 '신청표 엑셀 불러오기': 근무신청표.xlsx (이름 + 요청사항 + 고정 주휴 자동 감지)"
+            "💡 '신청표 엑셀 불러오기': 근무신청표.xlsx (이름 + 요청사항 + 고정 주휴 자동 감지)\n"
+            "💡 '이전 근무 불러오기': 이전 달 근무표 엑셀 → 전월N, 수면이월 자동 반영"
         )
         info_label.setWordWrap(True)
         info_label.setStyleSheet("color: #666; font-size: 9pt; padding: 8px;")
@@ -238,7 +252,7 @@ class SetupTab(QWidget):
             self.table.setCellWidget(row, COL_4DAY, cb_4day)
 
             # 고정 주휴 콤보
-            weekoff_combo = QComboBox()
+            weekoff_combo = NoWheelComboBox()
             weekoff_combo.addItems(WEEKDAY_OPTIONS)
             if nurse.fixed_weekly_off is not None:
                 weekoff_combo.setCurrentIndex(nurse.fixed_weekly_off + 1)
@@ -435,6 +449,180 @@ class SetupTab(QWidget):
         self._sync_from_table()
         return self.nurses
 
+    def _open_prev_shift_dialog(self):
+        """이전 근무 불러오기 팝업"""
+        self._sync_from_table()
+        if not self.nurses:
+            QMessageBox.warning(self, "오류", "간호사 목록이 없습니다.")
+            return
+        dlg = PrevShiftDialog(self.nurses, self.get_start_date(), parent=self)
+        if dlg.exec() == QDialog.DialogCode.Accepted:
+            self._rebuild_table()
+            self.dm.save_nurses(self.nurses)
+
     def get_start_date(self) -> date:
         qd = self.date_edit.date()
         return date(qd.year(), qd.month(), qd.day())
+
+
+# ══════════════════════════════════════════
+# 이전 근무 입력 다이얼로그
+# ══════════════════════════════════════════
+
+# 다이얼로그 콤보박스 옵션
+PREV_SHIFT_CODES = [
+    "", "D", "중2", "E", "N",
+    "OFF", "주", "법휴", "수면", "생휴", "휴가", "특휴", "공가", "경가", "보수", "POFF",
+]
+
+TAIL_DAYS = 5
+
+
+class PrevShiftDialog(QDialog):
+    """이전 달 마지막 5일 근무 입력/수정 팝업"""
+
+    def __init__(self, nurses: list[Nurse], start_date: date, parent=None):
+        super().__init__(parent)
+        self.nurses = nurses
+        self.start_date = start_date
+        prev_month = (start_date - timedelta(days=1)).month
+        self.setWindowTitle(f"이전 달({prev_month}월) 근무 불러오기")
+        self.setMinimumSize(600, 500)
+        self._building = False
+        self._init_ui()
+        self._populate()
+
+    def _init_ui(self):
+        layout = QVBoxLayout(self)
+
+        info = QLabel("이전 달 마지막 5일의 근무를 입력하세요. (월 경계 제약조건에 사용)")
+        info.setWordWrap(True)
+        info.setStyleSheet("color: #013976; font-weight: bold; padding: 4px;")
+        layout.addWidget(info)
+
+        # 버튼 바
+        top_btn = QHBoxLayout()
+
+        self.excel_btn = QPushButton("엑셀 불러오기")
+        self.excel_btn.setObjectName("secondaryBtn")
+        self.excel_btn.clicked.connect(self._import_from_excel)
+        top_btn.addWidget(self.excel_btn)
+
+        self.clear_btn = QPushButton("초기화")
+        self.clear_btn.setObjectName("dangerBtn")
+        self.clear_btn.clicked.connect(self._clear_all)
+        top_btn.addWidget(self.clear_btn)
+
+        top_btn.addStretch()
+        layout.addLayout(top_btn)
+
+        # 테이블: 행=간호사, 열=이전 달 마지막 5일
+        # 시작일 기준 이전 달 마지막 날짜 계산
+        prev_last_date = self.start_date - timedelta(days=1)  # 이전 달 마지막 날
+        prev_month = prev_last_date.month
+        prev_last_day = prev_last_date.day
+        self._tail_dates = []
+        headers = []
+        for i in range(TAIL_DAYS):
+            d = prev_last_day - TAIL_DAYS + 1 + i
+            self._tail_dates.append(d)
+            headers.append(f"{prev_month}월 {d}일")
+
+        self.table = QTableWidget()
+        self.table.setRowCount(len(self.nurses))
+        self.table.setColumnCount(TAIL_DAYS)
+        self.table.setHorizontalHeaderLabels(headers)
+        self.table.setVerticalHeaderLabels([n.name for n in self.nurses])
+        self.table.verticalHeader().setDefaultSectionSize(34)
+        self.table.horizontalHeader().setSectionResizeMode(
+            QHeaderView.ResizeMode.Stretch
+        )
+        layout.addWidget(self.table)
+
+        # 적용/취소
+        btn_box = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok
+            | QDialogButtonBox.StandardButton.Cancel
+        )
+        btn_box.button(QDialogButtonBox.StandardButton.Ok).setText("적용")
+        btn_box.button(QDialogButtonBox.StandardButton.Cancel).setText("취소")
+        btn_box.accepted.connect(self._apply)
+        btn_box.rejected.connect(self.reject)
+        layout.addWidget(btn_box)
+
+    def _populate(self):
+        """기존 prev_tail_shifts를 콤보박스에 채움"""
+        self._building = True
+        for row, nurse in enumerate(self.nurses):
+            tail = nurse.prev_tail_shifts or []
+            for col in range(TAIL_DAYS):
+                combo = NoWheelComboBox()
+                combo.addItems(PREV_SHIFT_CODES)
+                if col < len(tail) and tail[col] in PREV_SHIFT_CODES:
+                    combo.setCurrentText(tail[col])
+                self.table.setCellWidget(row, col, combo)
+        self._building = False
+
+    def _apply(self):
+        """콤보박스 값을 nurses에 저장"""
+        for row, nurse in enumerate(self.nurses):
+            shifts = []
+            for col in range(TAIL_DAYS):
+                combo = self.table.cellWidget(row, col)
+                val = combo.currentText() if combo else ""
+                shifts.append(val)
+            nurse.prev_tail_shifts = shifts
+        self.accept()
+
+    def _clear_all(self):
+        """전체 비우기"""
+        self._building = True
+        for row in range(self.table.rowCount()):
+            for col in range(TAIL_DAYS):
+                combo = self.table.cellWidget(row, col)
+                if combo:
+                    combo.setCurrentIndex(0)
+        self._building = False
+
+    def _import_from_excel(self):
+        """엑셀 파일에서 이전 근무표 읽기"""
+        path, _ = QFileDialog.getOpenFileName(
+            self, "이전 달 근무표 엑셀 선택", "", "Excel Files (*.xlsx *.xls)"
+        )
+        if not path:
+            return
+        try:
+            from engine.excel_io import import_prev_schedule
+            nurse_names = [n.name for n in self.nurses]
+            tail_result, n_counts = import_prev_schedule(path, nurse_names, TAIL_DAYS)
+
+            if not tail_result:
+                QMessageBox.warning(self, "오류", "매칭되는 간호사가 없습니다.")
+                return
+
+            self._building = True
+            matched = 0
+            for row, nurse in enumerate(self.nurses):
+                if nurse.name in tail_result:
+                    matched += 1
+                    shifts = tail_result[nurse.name]
+                    for col in range(TAIL_DAYS):
+                        combo = self.table.cellWidget(row, col)
+                        if combo and col < len(shifts):
+                            val = shifts[col]
+                            idx = combo.findText(val)
+                            if idx >= 0:
+                                combo.setCurrentIndex(idx)
+                            else:
+                                combo.setCurrentIndex(0)
+                if nurse.name in n_counts:
+                    nurse.prev_month_N = n_counts[nurse.name]
+            self._building = False
+
+            QMessageBox.information(
+                self, "완료",
+                f"{matched}명 매칭 완료 (전체 {len(self.nurses)}명)\n"
+                f"전월 N 횟수도 자동 반영되었습니다."
+            )
+        except Exception as e:
+            QMessageBox.critical(self, "오류", f"불러오기 실패:\n{str(e)}")

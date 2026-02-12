@@ -172,7 +172,7 @@ def validate_change(
 
     # ── 8. 일일 인원 ──
     # 근무 → 다른 근무/OFF: 원래 근무 인원 감소 확인
-    if old_shift in ("D", "E", "N") and old_shift != new_shift:
+    if old_shift in ("D", "중2", "E", "N") and old_shift != new_shift:
         count = schedule.get_staff_count(day, old_shift) - 1
         min_req = getattr(rules, f"daily_{old_shift}")
         if count < min_req:
@@ -182,7 +182,7 @@ def validate_change(
 
     # ── 9. 책임 ≥1 ──
     if nurse.grade == "책임" and is_off:
-        if old_shift in ("D", "E", "N"):
+        if old_shift in ("D", "중2", "E", "N"):
             chief_cnt = sum(
                 1 for n in schedule.nurses
                 if n.id != nid
@@ -197,7 +197,7 @@ def validate_change(
 
     # ── 10. 책임+서브차지 ≥2 ──
     if nurse.grade in ("책임", "서브차지") and is_off:
-        if old_shift in ("D", "E", "N"):
+        if old_shift in ("D", "중2", "E", "N"):
             sr_cnt = sum(
                 1 for n in schedule.nurses
                 if n.id != nid

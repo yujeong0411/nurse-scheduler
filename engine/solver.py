@@ -63,28 +63,29 @@ def _log(message):
 # ══════════════════════════════════════════
 
 # 근무
-_D, _E, _N = 0, 1, 2
-# _D, _D9, _D1, _M1, _M2, _E, _N = 0, 1, 2, 3, 4, 5, 6
+_D, _중2, _E, _N = 0, 1, 2, 3
+# _D, _D9, _D1, _중1, _중2, _E, _N = 0, 1, 2, 3, 4, 5, 6
 
-# 휴무 (개별 타입)
-_주 = 3
-_OFF = 4
-_법휴 = 5
-_수면 = 6
-_생휴 = 7
-_휴가 = 8
-_특휴 = 9
-_공가 = 10
-_경가 = 11
-_보수 = 12
-_POFF = 13
+# 휴무 (개별 타입) — _N=3 다음부터 시작
+_주 = 4
+_OFF = 5
+_법휴 = 6
+_수면 = 7
+_생휴 = 8
+_휴가 = 9
+_특휴 = 10
+_공가 = 11
+_경가 = 12
+_보수 = 13
+_POFF = 14
 
-NUM_TYPES = 14
+NUM_TYPES = 15
 
 # 인덱스 ↔ 이름
 IDX_TO_NAME = {
     _D: "D",
-    # _D9: "D9", _D1: "D1", _M1: "중1", _M2: "중2",
+    _중2: "중2",
+    # _D9: "D9", _D1: "D1", _중1: "중1",
     _E: "E", _N: "N",
     _주: "주", _OFF: "OFF", _법휴: "법휴", _수면: "수면",
     _생휴: "생휴", _휴가: "휴가", _특휴: "특휴", _공가: "공가", _경가: "경가",
@@ -99,17 +100,18 @@ ALL_OFF = REGULAR_OFF + EXTRA_OFF                                       # 연속
 
 # 근무 패밀리 (인원 집계용)
 D_FAMILY = [_D]            # D만
-# M_FAMILY = [_D9, _D1, _M1, _M2]  # 중간 계열
+M_FAMILY = [_중2]  # 중간 계열   _D9, _D1, _중1 추후 추가
 E_FAMILY = [_E]            # E만
 N_FAMILY = [_N]
-WORK_INDICES = [_D, _E, _N]  # + M_FAMILY when 중간근무 추가
+WORK_INDICES = [_D, _E, _N, _중2]  # + M_FAMILY when 중간근무 추가
 
 # 근무 순서 레벨 (역순 금지용)
 SHIFT_LEVEL = {
     _D: 1,
-    # _D9: 2, _D1: 2, _M1: 2, _M2: 2,  # 중간 계열
-    _E: 2,   # → 3 when 중간근무 추가
-    _N: 3,   # → 4 when 중간근무 추가
+    _중2: 2,
+    # _D9: 2, _D1: 2, _중1: 2,  # 중간 계열
+    _E: 3,
+    _N: 4,
 }
 
 # 역순 금지 페어 (미리 계산)
@@ -117,7 +119,7 @@ FORBIDDEN_PAIRS = [
     (si, sj) for si in WORK_INDICES for sj in WORK_INDICES
     if SHIFT_LEVEL[si] > SHIFT_LEVEL[sj]
 ]
-# → (N,D), (N,E), (E,D)
+# → (N,D), (N,중2), (N,E), (E,D), (E,중2), (중2,D)
 
 
 def solve_schedule(
@@ -132,34 +134,6 @@ def solve_schedule(
 
     num_days = 28
     num_nurses = len(nurses)
-
-    # ══════════════════════════════════════════
-    # [추가] 1. 공휴일 데이터 로드 및 진단 로그
-    # ══════════════════════════════════════════
-    import holidays  # 상단에 import가 없다면 추가
-    kr_holidays = holidays.KR(years=start_date.year)
-    holiday_indices = []
-    for d in range(num_days):
-        curr = start_date + timedelta(days=d)
-        # 공휴일이거나 일요일(6)인 경우
-        if curr in kr_holidays or curr.weekday() == 6:
-            holiday_indices.append(d)
-    
-    _log(f"--- 시스템 진단 ---")
-    _log(f"시작 날짜: {start_date}")
-    _log(f"인식된 공휴일/일요일 인덱스: {holiday_indices}")
-    _log(f"--- 데이터 전달 확인 ---")
-    _log(f"1. 시스템(holidays)이 계산한 공휴일: {holiday_indices}")
-    _log(f"2. UI(rules)로부터 넘어온 공휴일 리스트: {rules.public_holidays}")
-    
-    # 만약 rules.public_holidays에 숫자가 있다면 0-based 인덱스로 변환해서 비교
-    ui_holiday_dis = [h - 1 for h in rules.public_holidays]
-    _log(f"3. UI 데이터를 인덱스로 변환: {ui_holiday_dis}")
-    
-    if not holiday_indices:
-        _log("⚠️ 경고: 공휴일 데이터가 하나도 없습니다. H10b 제약조건 충돌 가능성 높음!")
-    # ══════════════════════════════════════════
-
     model = cp_model.CpModel()
 
     # ──────────────────────────────────────────
@@ -202,12 +176,18 @@ def solve_schedule(
             sum(shifts[(ni, di, _D)] for ni in range(num_nurses))
             == rules.daily_D
         )
-        # M (중간 계열) — 중간근무 추가 시 활성화
-        # model.add(
-        #     sum(shifts[(ni, di, si)]
-        #         for ni in range(num_nurses) for si in M_FAMILY)
-        #     >= rules.daily_M
-        # )
+        # 중2: 평일(월~금)만 정확히 daily_M명, 주말은 0명
+        중2_nurses = [ni for ni, n in enumerate(nurses) if n.role == "중2"]
+        if 중2_nurses and weekday_of(di) < 5:  # 월~금 + 중2 간호사 존재 시
+            model.add(
+                sum(shifts[(ni, di, si)] for ni in 중2_nurses for si in M_FAMILY)
+                == rules.daily_M
+            )
+        else:  # 주말 또는 중2 간호사 없음
+            model.add(
+                sum(shifts[(ni, di, si)] for ni in range(num_nurses) for si in M_FAMILY)
+                == 0
+            )
         model.add(
             sum(shifts[(ni, di, _E)] for ni in range(num_nurses))
             == rules.daily_E
@@ -216,6 +196,123 @@ def solve_schedule(
             sum(shifts[(ni, di, _N)] for ni in range(num_nurses))
             == rules.daily_N
         )
+
+    # ── H2a. 중2 role 아닌 간호사는 중2 근무 금지 ──
+    non_중2_nurses = [ni for ni, n in enumerate(nurses) if n.role != "중2"]
+    for ni in non_중2_nurses:
+        for di in range(num_days):
+            for si in M_FAMILY:
+                model.add(shifts[(ni, di, si)] == 0)
+
+    # ══════════════════════════════════════════
+    # 월 경계 제약 (prev_tail_shifts 기반)
+    # 이전 달 마지막 근무를 분석하여 day0~day4에 추가 제약
+    # ══════════════════════════════════════════
+    for ni, nurse in enumerate(nurses):
+        tail = nurse.prev_tail_shifts
+        if not tail:
+            continue
+        # 빈 문자열 제거하지 않고 위치 유지 (빈칸 = 정보 없음)
+        tail_len = len(tail)
+
+        # ── 경계 H3: 역순 금지 (tail[-1] → day0) ──
+        if rules.ban_reverse_order and tail_len >= 1:
+            last = tail[-1]
+            if last in NAME_TO_IDX:
+                last_idx = NAME_TO_IDX[last]
+                if last_idx in SHIFT_LEVEL:
+                    for sj in WORK_INDICES:
+                        if sj in SHIFT_LEVEL and SHIFT_LEVEL[last_idx] > SHIFT_LEVEL[sj]:
+                            model.add(shifts[(ni, 0, sj)] == 0)
+
+        # ── 경계 H3a: N→1off→D 금지 ──
+        # tail[-2:]가 [N, OFF계열]이면 day0에 D 금지
+        if tail_len >= 2:
+            t2, t1 = tail[-2], tail[-1]
+            if t2 == "N" and t1 in ("OFF", "주", "법휴", "수면", "생휴", "휴가", "특휴", "공가", "경가", "보수", "POFF"):
+                for si in D_FAMILY:
+                    model.add(shifts[(ni, 0, si)] == 0)
+        # tail[-1]이 N이면 day0 OFF + day1 D 금지
+        if tail_len >= 1 and tail[-1] == "N":
+            model.add(
+                sum(shifts[(ni, 0, oi)] for oi in ALL_OFF)
+                + shifts[(ni, 1, _D)] <= 1
+            ) if 1 < num_days else None
+
+        # ── 경계 H3b: N→1off→N 금지 ──
+        # tail[-2:]가 [N, OFF계열]이면 day0에 N 금지
+        if tail_len >= 2:
+            t2, t1 = tail[-2], tail[-1]
+            if t2 == "N" and t1 in ("OFF", "주", "법휴", "수면", "생휴", "휴가", "특휴", "공가", "경가", "보수", "POFF"):
+                model.add(shifts[(ni, 0, _N)] == 0)
+        # tail[-1]이 N이면 day0 OFF + day1 N 금지
+        if tail_len >= 1 and tail[-1] == "N" and num_days >= 2:
+            model.add(
+                sum(shifts[(ni, 0, oi)] for oi in ALL_OFF)
+                + shifts[(ni, 1, _N)] <= 1
+            )
+
+        # ── 경계 H4: 연속 근무 ≤ max_consecutive_work ──
+        # tail 끝에서 연속 근무일수 세기
+        _work_set = {"D", "E", "N", "중2"}
+        tail_consec_work = 0
+        for s in reversed(tail):
+            if s in _work_set:
+                tail_consec_work += 1
+            else:
+                break
+        # tail에서 이미 k일 연속 → day0부터 max_cw-k일 내 반드시 휴무
+        if tail_consec_work > 0:
+            remain = rules.max_consecutive_work - tail_consec_work
+            if remain <= 0:
+                # 이미 한도 도달 → day0은 반드시 휴무
+                model.add(
+                    sum(shifts[(ni, 0, oi)] for oi in ALL_OFF) >= 1
+                )
+            else:
+                # remain일 이내에 휴무 1개 필요
+                window = min(remain + 1, num_days)
+                if window > 0:
+                    model.add(
+                        sum(shifts[(ni, dd, oi)]
+                            for dd in range(window) for oi in ALL_OFF) >= 1
+                    )
+
+        # ── 경계 H5: 연속 N ≤ max_consecutive_N ──
+        tail_consec_N = 0
+        for s in reversed(tail):
+            if s == "N":
+                tail_consec_N += 1
+            else:
+                break
+        if tail_consec_N > 0:
+            remain_n = rules.max_consecutive_N - tail_consec_N
+            if remain_n <= 0:
+                model.add(shifts[(ni, 0, _N)] == 0)
+            else:
+                window_n = min(remain_n + 1, num_days)
+                if window_n > 0:
+                    model.add(
+                        sum(shifts[(ni, dd, _N)]
+                            for dd in range(window_n)) <= remain_n
+                    )
+
+        # ── 경계 H6: NN→2off ──
+        off_after = rules.off_after_2N
+        # tail[-2:]가 [N, N]이면 day0, day1 휴무
+        if tail_len >= 2 and tail[-2] == "N" and tail[-1] == "N":
+            for k in range(off_after):
+                if k < num_days:
+                    model.add(
+                        sum(shifts[(ni, k, oi)] for oi in ALL_OFF) >= 1
+                    )
+        # tail[-1]이 N이면, day0이 N인 경우 day1,day2 휴무 필요
+        elif tail_len >= 1 and tail[-1] == "N":
+            for k in range(off_after):
+                if 1 + k < num_days:
+                    model.add(
+                        shifts[(ni, 0, _N)] <= sum(shifts[(ni, 1 + k, oi)] for oi in ALL_OFF)
+                    )
 
     # ── H3. 역순 금지 ──
     if rules.ban_reverse_order:
@@ -226,12 +323,24 @@ def solve_schedule(
                         shifts[(ni, di, si)] + shifts[(ni, di + 1, sj)] <= 1
                     )
 
-    # ── H3a. N→1off→D 금지 (N 후 D까지 최소 2일 휴무) ──
+    # ── H3a. N→1휴무→D 금지 (N 후 D까지 최소 2일 휴무) ──
     for ni in range(num_nurses):
         for di in range(num_days - 2):
             model.add(
                 shifts[(ni, di, _N)] + shifts[(ni, di + 2, _D)] <= 1
             )
+    
+    # ── H3b. N→1휴무→N 금지 ──
+    # N, 휴무1개, N 패턴만 금지 (연속 N이나 휴무2개 이상 후 N은 허용)
+    for ni in range(num_nurses):
+        for di in range(num_days - 2):
+            model.add(
+                shifts[(ni, di, _N)]
+                + sum(shifts[(ni, di + 1, oi)] for oi in ALL_OFF)
+                + shifts[(ni, di + 2, _N)]
+                <= 2
+            )
+
 
     # ── H4. 최대 연속 근무 (5일) ──
     # ALL_OFF 모두 비근무로 인정
@@ -310,9 +419,9 @@ def solve_schedule(
         if excluded == "D":
             for si in D_FAMILY:
                 model.add(shifts[(ni, di, si)] == 0)
-        # elif excluded == "M":  # 중간근무 추가 시
-        #     for si in M_FAMILY:
-        #         model.add(shifts[(ni, di, si)] == 0)
+        elif excluded == "M":  # 중간근무 추가 시
+            for si in M_FAMILY:
+                model.add(shifts[(ni, di, si)] == 0)
         elif excluded == "E":
             for si in E_FAMILY:
                 model.add(shifts[(ni, di, si)] == 0)
@@ -336,8 +445,6 @@ def solve_schedule(
 
     # ── H10b. 법휴는 공휴일에만 배치 가능 ──
     public_holiday_dis = set(h - 1 for h in rules.public_holidays if 1 <= h <= num_days)
-    _log(f"최종 적용 공휴일(UI기준): {public_holiday_dis}")
-
     for ni in range(num_nurses):
         for di in range(num_days):
             if di not in public_holiday_dis:
@@ -353,17 +460,17 @@ def solve_schedule(
             else:
                 model.add(off_sum <= 1)  # 짧은 마지막 주
 
-    # ── H12. 책임 1명 이상 (매 근무) ──
+    # ── H12. 책임 1명 이상 (D/E/N만, 중2 제외) ──
     chiefs = [ni for ni, n in enumerate(nurses) if n.grade == "책임"]
     if chiefs and rules.min_chief_per_shift > 0:
         for di in range(num_days):
-            for si in WORK_INDICES:
+            for si in [_D, _E, _N]:
                 model.add(
                     sum(shifts[(ni, di, si)] for ni in chiefs)
                     >= rules.min_chief_per_shift
                 )
 
-    # ── H13. 책임+서브차지 N명 이상 (매 근무) ──
+    # ── H13. 책임+서브차지 2명 이상 (매 근무) ──
     seniors = [ni for ni, n in enumerate(nurses)
                if n.grade in ("책임", "서브차지")]
     if seniors and rules.min_senior_per_shift > 0:
@@ -400,12 +507,12 @@ def solve_schedule(
                 sum(shifts[(ni, di, _N)] for ni in tier_nurses) <= max_n
             )
 
-    # ── H15. 책임만 1명 이하 (매 근무) ──
+    # ── H15. 책임만 1명 이하 (D/E/N만, 중2 제외) ──
     chief_only = [ni for ni, n in enumerate(nurses)
                   if n.role == "책임만"]
     if chief_only:
         for di in range(num_days):
-            for si in WORK_INDICES:
+            for si in [_D, _E, _N]:
                 model.add(
                     sum(shifts[(ni, di, si)] for ni in chief_only) <= 1
                 )
@@ -569,8 +676,15 @@ def solve_schedule(
 
     # ── H20. 휴무 편차 제한 (±2, 주4일제 +4) ──
     # ±2: 수면/생휴 등 특수 휴무로 인한 개인차 수용
-    total_work_per_day = rules.daily_D + rules.daily_E + rules.daily_N
-    total_off_slots = num_nurses * num_days - num_days * total_work_per_day
+    중2_exists = any(n.role == "중2" for n in nurses)
+    중2_per_weekday = rules.daily_M if 중2_exists else 0
+    num_weekdays = sum(1 for di in range(num_days) if weekday_of(di) < 5)
+    num_weekends = num_days - num_weekdays
+    total_work_slots = (
+        num_weekdays * (rules.daily_D + 중2_per_weekday + rules.daily_E + rules.daily_N)
+        + num_weekends * (rules.daily_D + rules.daily_E + rules.daily_N)
+    )
+    total_off_slots = num_nurses * num_days - total_work_slots
 
     extra_off_4day = 4  # 주4일제 추가 휴무
     fourday_nis = [ni for ni in range(num_nurses) if nurses[ni].is_4day_week]
@@ -604,7 +718,8 @@ def solve_schedule(
     # ══════════════════════════════════════════
     obj = list(obj_auto_off)  # 생휴/수면 soft bonus 포함
 
-    # ── S1. 희망 요청 반영 (+30) ──
+    # ── S1. 희망 요청 반영 (+100) ──
+    # 공정성 페널티(-5~-8)보다 충분히 높아야 요청이 반영됨
     for r in requests:
         if r.is_hard or r.is_exclude:
             continue
@@ -617,10 +732,10 @@ def solve_schedule(
 
         if r.code == "OFF":
             # OFF 요청 → 어떤 off 타입이든 쉬면 충족
-            obj.append(30 * sum(shifts[(ni, di, oi)] for oi in ALL_OFF))
+            obj.append(100 * sum(shifts[(ni, di, oi)] for oi in ALL_OFF))
         elif r.code in NAME_TO_IDX:
             si = NAME_TO_IDX[r.code]
-            obj.append(30 * shifts[(ni, di, si)])
+            obj.append(100 * shifts[(ni, di, si)])
 
     # ── S2. D/E/N 횟수 공정성 (-5) ──
     shift_counts = {}
@@ -699,14 +814,7 @@ def solve_schedule(
     
     _log("solver.solve() 호출 시작...")
     status = solver.solve(model)
-
-    # solver.parameters.max_time_in_seconds = float(timeout_seconds) # 60초
-    # solver.parameters.num_search_workers = 1 # 병렬 처리로 인한 튕김 방지
-    # solver.parameters.log_search_progress = True
-    # solver.parameters.log_to_stdout = True
     
-    # _log("solver.solve() 호출 시작...")
-    # status = solver.solve(model)
     _log(f"솔버 종료 상태: {status} (3:FEASIBLE, 4:OPTIMAL, 0:UNKNOWN)")
 
     # ══════════════════════════════════════════
@@ -718,8 +826,7 @@ def solve_schedule(
     )
 
     if status in (cp_model.OPTIMAL, cp_model.FEASIBLE):
-        print("✅ 해를 찾았습니다!")
-        _log("✅ 해를 찾았습니다!")
+        _log("해를 찾았습니다!")
         for ni, nurse in enumerate(nurses):
             for di in range(num_days):
                 for si in range(NUM_TYPES):
@@ -730,8 +837,7 @@ def solve_schedule(
         # 후처리 (현재 솔버가 모든 휴무 타입을 직접 관리하므로 최소한)
         _post_process(schedule, nurses, rules)
     else:
-        print("❌ 해를 찾을 수 없습니다 (Infeasible). 인원수 설정이나 휴무 조건을 확인하세요.")
-        _log("❌ 해를 찾을 수 없습니다 (Infeasible). 인원수 설정이나 휴무 조건을 확인하세요.")
+        _log("해를 찾을 수 없습니다 (Infeasible). 인원수 설정이나 휴무 조건을 확인하세요.")
     return schedule
 
 

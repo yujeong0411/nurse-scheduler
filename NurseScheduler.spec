@@ -26,7 +26,7 @@ a = Analysis(
     optimize=0,
 )
 
-# ── 핵심: PyQt6 등에서 가져온 중복된 런타임 DLL을 강제로 제거 ──
+# ── PyQt6 등에서 가져온 중복된 런타임 DLL을 강제로 제거 ──
 # 이 코드는 바이너리 목록에서 msvcp140과 vcruntime140이 포함된 모든 파일을 삭제합니다.
 # 시스템(C:\Windows\System32)에 있는 DLL을 대신 사용하게 유도합니다.
 excluded_binaries = ['MSVCP140.dll', 'VCRUNTIME140.dll', 'VCRUNTIME140_1.dll']
@@ -52,7 +52,7 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
-    icon=['logo.ico'],
+    icon=['assets/logo.ico'],
     stack_size=67108864,    # 스택 사이즈 유지
 )
 coll = COLLECT(
@@ -62,5 +62,5 @@ coll = COLLECT(
     strip=False,
     upx=False,              # 반드시 False로 설정
     upx_exclude=[],
-    name='NurseScheduler_2',
+    name='NurseScheduler',
 )
