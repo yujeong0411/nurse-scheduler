@@ -75,7 +75,9 @@ SHIFT_COLORS = {
     "특휴": QColor(252, 251, 146),
     "공가": QColor(252, 251, 146),
     "경가": QColor(252, 251, 146),
-    "보수": QColor(252, 251, 146)
+    "보수": QColor(252, 251, 146),
+    "필수": QColor(252, 251, 146),
+    "번표": QColor(252, 251, 146),
 }
 
 SHIFT_TEXT_COLORS = {
@@ -112,14 +114,14 @@ SHORTAGE_BG = QColor(255, 220, 220)
 # 요청사항 탭 코드 (빈칸 = 자동배정)
 REQUEST_CODES = [
     "", "D", "E", "N", "중2",
-    "OFF", "주", "법휴", "생휴", "수면", "휴가", "특휴", "공가", "경가",
+    "OFF", "주", "법휴", "생휴", "수면", "휴가", "특휴", "공가", "경가", "보수", "필수", "번표",
     "D 제외", "E 제외", "N 제외",
 ]
 
 # 결과 탭 수동 수정용
 SHIFT_TYPES = [
     "D", "E", "N", "중2",
-    "OFF", "주", "법휴", "생휴", "수면", "POFF", "휴가", "특휴", "공가", "경가",
+    "OFF", "주", "법휴", "생휴", "수면", "POFF", "휴가", "특휴", "공가", "경가", "보수", "필수", "번표",
 ]
 
 # 간호사 속성 옵션
@@ -289,5 +291,46 @@ QCheckBox {
     font-family: '맑은 고딕';
     font-size: 10pt;
     spacing: 8px;
+}
+
+/* =========================
+   가이드 독 패널
+========================= */
+QDockWidget {
+    font-family: '맑은 고딕';
+    font-size: 10pt;
+    titlebar-close-icon: url(none);
+}
+
+QDockWidget::title {
+    background: #013976;
+    color: white;
+    padding: 6px 10px;
+    font-weight: 600;
+    text-align: left;
+}
+
+QPushButton#guideToggleBtn {
+    background-color: #e8edf3;
+    color: #013976;
+    border: 1px solid #c8d0dc;
+    border-radius: 4px;
+    padding: 2px 10px;
+    font-size: 9pt;
+    font-family: '맑은 고딕';
+    font-weight: 600;
+}
+
+QPushButton#guideToggleBtn:checked {
+    background-color: #013976;
+    color: white;
+}
+
+QPushButton#guideToggleBtn:hover {
+    background-color: #d8e2f0;
+}
+
+QPushButton#guideToggleBtn:checked:hover {
+    background-color: #0a4ea3;
 }
 """

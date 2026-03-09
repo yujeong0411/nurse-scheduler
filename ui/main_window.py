@@ -1,7 +1,7 @@
 """메인 윈도우 - 탭 컨테이너"""
-from PyQt6.QtWidgets import QMainWindow, QTabWidget
-from PyQt6.QtGui import QIcon 
-from PyQt6.QtCore import QSize 
+from PyQt6.QtWidgets import QMainWindow, QTabWidget, QDockWidget, QPushButton
+from PyQt6.QtGui import QIcon
+from PyQt6.QtCore import QSize, Qt
 import sys
 import os
 from engine.models import DataManager
@@ -9,6 +9,7 @@ from ui.setup_tab import SetupTab
 from ui.request_tab import RequestTab
 from ui.rules_tab import RulesTab
 from ui.result_tab import ResultTab
+from ui.guide_panel import GuidePanel
 from ui.styles import APP_STYLE
 
 
@@ -61,10 +62,41 @@ class MainWindow(QMainWindow):
         # 탭 전환 시 데이터 동기화
         self.tabs.currentChanged.connect(self._on_tab_changed)
 
+        # ── 가이드 사이드 패널 ──
+        self.guide = GuidePanel()
+        self._dock = QDockWidget("가이드", self)
+        self._dock.setObjectName("guideDock")
+        self._dock.setWidget(self.guide)
+        self._dock.setAllowedAreas(
+            Qt.DockWidgetArea.RightDockWidgetArea
+            | Qt.DockWidgetArea.LeftDockWidgetArea
+        )
+        self._dock.setFeatures(
+            QDockWidget.DockWidgetFeature.DockWidgetClosable
+            | QDockWidget.DockWidgetFeature.DockWidgetMovable
+        )
+        self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self._dock)
+        self._dock.setMinimumWidth(250)
+
+        # 가이드 토글 버튼 (상태바)
+        self._guide_btn = QPushButton("ⓘ 가이드")
+        self._guide_btn.setObjectName("guideToggleBtn")
+        self._guide_btn.setCheckable(True)
+        self._guide_btn.setChecked(True)
+        self._guide_btn.setFixedHeight(26)
+        self._guide_btn.clicked.connect(self._toggle_guide)
+        self._dock.visibilityChanged.connect(self._guide_btn.setChecked)
+        self.statusBar().addPermanentWidget(self._guide_btn)
+
         # 상태바
         self.statusBar().showMessage("준비됨")
 
+    def _toggle_guide(self, checked: bool):
+        self._dock.setVisible(checked)
+
     def _on_tab_changed(self, index):
+        self.guide.set_tab(index)
+
         if index == 1:  # 요청사항 탭
             nurses = self.setup_tab.get_nurses()
             start_date = self.setup_tab.get_start_date()

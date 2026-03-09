@@ -89,7 +89,7 @@ def evaluate_schedule(schedule: Schedule, rules: Rules) -> dict:
             continue
         req_total += 1
         actual = schedule.get_shift(r.nurse_id, r.day)
-        if r.code == "OFF" and actual in OFF_TYPES:
+        if r.code in OFF_TYPES and actual in OFF_TYPES:
             req_fulfilled += 1
         elif actual == r.code:
             req_fulfilled += 1
@@ -99,7 +99,7 @@ def evaluate_schedule(schedule: Schedule, rules: Rules) -> dict:
         req_total += 1
         actual = schedule.get_shift(nid, day)
         if any(
-            (c == "OFF" and actual in OFF_TYPES) or actual == c
+            (c in OFF_TYPES and actual in OFF_TYPES) or actual == c
             for c in codes
         ):
             req_fulfilled += 1

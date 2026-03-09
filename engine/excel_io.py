@@ -43,14 +43,16 @@ FILLS = {
     "특휴": PatternFill(start_color="fcfb92", fill_type="solid"),
     "공가":   PatternFill(start_color="fcfb92", fill_type="solid"),
     "경가":   PatternFill(start_color="fcfb92", fill_type="solid"),
-    "보수":   PatternFill(start_color="fcfb92", fill_type="solid")
+    "보수":   PatternFill(start_color="fcfb92", fill_type="solid"),
+    "필수":   PatternFill(start_color="fcfb92", fill_type="solid"),
+    "번표":   PatternFill(start_color="fcfb92", fill_type="solid"),
 }
 FONTS = {
     "D":   Font(bold=True, size=9),
     # "D9":  Font(color="2E75B6", bold=True, size=9),  # 중간 계열
     # "D1":  Font(color="2E75B6", bold=True, size=9),  # 중간 계열
     # "중1":  Font(color="BF8F00", bold=True, size=9),  # 중간 계열
-    # "중2":  Font(color="07a336", bold=True, size=9),
+    "중2":  Font(bold=True, size=9),
     "E":   Font(bold=True, size=9),
     "N":   Font(color="d61506", bold=True, size=9),
     "OFF": Font(bold=True, size=9),
@@ -64,6 +66,8 @@ FONTS = {
     "공가": Font(bold=True, size=9),
     "경가": Font(bold=True, size=9),
     "보수": Font(bold=True, size=9),
+    "필수": Font(bold=True, size=9),
+    "번표": Font(bold=True, size=9),
 }
 
 HEADER_FILL = PatternFill(start_color="013976", fill_type="solid")
@@ -413,6 +417,8 @@ def _normalize_code(val: str) -> str | None:
         "경가": "경가", "경": "경가",
         "특휴": "특휴",
         "보수": "보수",
+        "필수": "필수",
+        "번표": "번표",
         "POFF": "POFF",
     }
 
@@ -699,8 +705,8 @@ def import_prev_schedule(
     filepath: str,
     nurse_names: list[str],
     tail_days: int = 5,
-) -> tuple[dict[str, list[str]], dict[str, int]]:
-    """이전 달 근무표 엑셀에서 마지막 tail_days일의 근무 + 전체 N 횟수 추출
+) -> tuple[dict[str, list[str]], dict[str, int], dict[str, int]]:
+    """이전 달 근무표 엑셀에서 마지막 tail_days일의 근무 + 전체 N 횟수 + 수면 횟수 추출
 
     export_schedule 형식 기준:
       행3: 헤더 (이름, 1~28, 통계...)
@@ -712,9 +718,10 @@ def import_prev_schedule(
         tail_days: 추출할 마지막 일수 (기본 5)
 
     Returns:
-        (tail_shifts, n_counts)
+        (tail_shifts, n_counts, sleep_counts)
         - tail_shifts: {이름: [근무코드 리스트]} (가장 오래된 순)
         - n_counts: {이름: 전월 N 총 횟수}
+        - sleep_counts: {이름: 전월 수면 사용 횟수}
     """
     wb = load_workbook(filepath, read_only=True, data_only=True)
     ws = wb.active
@@ -722,7 +729,7 @@ def import_prev_schedule(
     result = _find_day_columns(ws)
     if result is None:
         wb.close()
-        return {}, {}
+        return {}, {}, {}
 
     header_row, day_cols, name_col, data_start = result
 
@@ -734,6 +741,7 @@ def import_prev_schedule(
     name_set = set(n.strip() for n in nurse_names)
     tail_result = {}
     n_counts = {}
+    sleep_counts = {}
     stop_words = {"요일", "이름", "일", "월", "화", "수", "목", "금", "토",
                   "off", "주", "수면", "생휴", "vac", "공가", "총",
                   "d 인원", "중2 인원", "e 인원", "n 인원"}
@@ -756,18 +764,22 @@ def import_prev_schedule(
             shifts.append(code if code else val)
         tail_result[name] = shifts
 
-        # 전체 N 횟수
+        # 전체 N 횟수 + 수면 횟수
         n_count = 0
+        sleep_count = 0
         for d in all_day_range:
             col = day_cols[d]
             c = row[col - 1] if col - 1 < len(row) else None
             val = str(c.value).strip() if c and c.value else ""
             if val == "N":
                 n_count += 1
+            if val == "수면":
+                sleep_count += 1
         n_counts[name] = n_count
+        sleep_counts[name] = sleep_count
 
     wb.close()
-    return tail_result, n_counts
+    return tail_result, n_counts, sleep_counts
 
 
 # ══════════════════════════════════════════

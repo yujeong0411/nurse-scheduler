@@ -499,7 +499,8 @@ class SetupTab(QWidget):
         if not self.nurses:
             QMessageBox.warning(self, "오류", "간호사 목록이 없습니다.")
             return
-        dlg = PrevShiftDialog(self.nurses, self.get_start_date(), parent=self)
+        rules = self.dm.load_rules()
+        dlg = PrevShiftDialog(self.nurses, self.get_start_date(), rules, parent=self)
         if dlg.exec() == QDialog.DialogCode.Accepted:
             self._rebuild_table()
             self.dm.save_nurses(self.nurses)
@@ -525,10 +526,11 @@ TAIL_DAYS = 5
 class PrevShiftDialog(QDialog):
     """이전 달 마지막 5일 근무 입력/수정 팝업"""
 
-    def __init__(self, nurses: list[Nurse], start_date: date, parent=None):
+    def __init__(self, nurses: list[Nurse], start_date: date, rules=None, parent=None):
         super().__init__(parent)
         self.nurses = nurses
         self.start_date = start_date
+        self.rules = rules
         prev_month = (start_date - timedelta(days=1)).month
         self.setWindowTitle(f"이전 달({prev_month}월) 근무 불러오기")
         self.setMinimumSize(600, 500)
@@ -636,13 +638,40 @@ class PrevShiftDialog(QDialog):
         if not path:
             return
         try:
-            from engine.excel_io import import_prev_schedule
+            from engine.excel_io import import_prev_schedule, detect_file_month
+            from engine.models import get_sleep_pair
+
             nurse_names = [n.name for n in self.nurses]
-            tail_result, n_counts = import_prev_schedule(path, nurse_names, TAIL_DAYS)
+            tail_result, n_counts, sleep_counts = import_prev_schedule(path, nurse_names, TAIL_DAYS)
 
             if not tail_result:
                 QMessageBox.warning(self, "오류", "매칭되는 간호사가 없습니다.")
                 return
+
+            # 수면이월 자동 판단을 위한 월 감지
+            _, prev_month = detect_file_month(path)
+            current_month = self.start_date.month
+            sleep_auto_applied = False
+            sleep_carry_count = 0
+
+            if prev_month is not None and self.rules is not None:
+                prev_pair = get_sleep_pair(prev_month)
+                cur_pair = get_sleep_pair(current_month)
+                # 이전 달이 홀수(페어 첫 달)이고, 현재 달이 같은 페어의 짝수 달
+                can_carry = (prev_month == prev_pair[0]
+                             and cur_pair == prev_pair
+                             and current_month == prev_pair[1])
+                sleep_auto_applied = True
+
+                for nurse in self.nurses:
+                    if nurse.name in n_counts:
+                        n = n_counts[nurse.name]
+                        sleep_used = sleep_counts.get(nurse.name, 0)
+                        if can_carry and n >= self.rules.sleep_N_monthly and sleep_used == 0:
+                            nurse.pending_sleep = True
+                            sleep_carry_count += 1
+                        else:
+                            nurse.pending_sleep = False
 
             self._building = True
             matched = 0
@@ -663,10 +692,14 @@ class PrevShiftDialog(QDialog):
                     nurse.prev_month_N = n_counts[nurse.name]
             self._building = False
 
-            QMessageBox.information(
-                self, "완료",
-                f"{matched}명 매칭 완료 (전체 {len(self.nurses)}명)\n"
-                f"전월 N 횟수도 자동 반영되었습니다."
-            )
+            # 완료 메시지 구성
+            msg = (f"{matched}명 매칭 완료 (전체 {len(self.nurses)}명)\n"
+                   f"전월 N 횟수 자동 반영 완료")
+            if sleep_auto_applied:
+                msg += f"\n수면이월 자동 판단: {sleep_carry_count}명 이월"
+            else:
+                msg += "\n수면이월: 월 감지 실패 → 수동 확인 필요"
+
+            QMessageBox.information(self, "완료", msg)
         except Exception as e:
             QMessageBox.critical(self, "오류", f"불러오기 실패:\n{str(e)}")

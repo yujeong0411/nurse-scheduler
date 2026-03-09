@@ -6,7 +6,7 @@ from PyQt6.QtWidgets import (
     QProgressBar, QGroupBox, QFileDialog)
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QColor, QFont, QBrush
-from engine.models import Schedule, DataManager
+from engine.models import Schedule, DataManager, OFF_TYPES
 from ui.styles import (
     SHIFT_COLORS, SHIFT_TEXT_COLORS, SHIFT_TYPES,
     WEEKEND_BG, SHORTAGE_BG, FONT_FAMILY,
@@ -123,6 +123,26 @@ class ResultTab(QWidget):
             )
             return
 
+        # ── 사전 검증 ──
+        try:
+            from engine.solver import validate_requests
+            warnings = validate_requests(
+                self.nurses, self.requests, self.rules, self.start_date
+            )
+            if warnings:
+                msg = "요청사항에 문제가 발견되었습니다:\n\n"
+                msg += "\n".join(f"• {w}" for w in warnings)
+                msg += "\n\n그래도 생성을 진행하시겠습니까?"
+                reply = QMessageBox.warning(
+                    self, "요청사항 검증",
+                    msg,
+                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                )
+                if reply == QMessageBox.StandardButton.No:
+                    return
+        except Exception:
+            pass  # 검증 실패해도 생성은 진행 가능
+
         self.progress.setVisible(True)
         self.progress.setRange(0, 0)
         self.generate_btn.setEnabled(False)
@@ -175,8 +195,19 @@ class ResultTab(QWidget):
         stat_cols = ["D", "중2", "E", "N", "OFF", "총"]
 
         # 빠른 조회를 위해 요청사항을 딕셔너리로 변환
-        # 키: (간호사ID, 날짜), 값: 요청코드
-        req_map = {(r.nurse_id, r.day): r.code for r in self.requests}
+        # 키: (간호사ID, 날짜), 값: 코드 리스트 (OR 요청 지원)
+        # is_or_map: 해당 키가 OR 요청인지 여부
+        req_map = {}   # (nid, day) → [code, ...]
+        is_or_map = {} # (nid, day) → bool
+        for r in self.requests:
+            key = (r.nurse_id, r.day)
+            if r.is_or:
+                req_map.setdefault(key, []).append(r.code)
+                is_or_map[key] = True
+            else:
+                req_map[key] = [r.code]
+                is_or_map[key] = False
+        off_set = set(OFF_TYPES)  # 휴무 동등 비교용
 
         # 컬럼 레이아웃: 이름(0) + 휴가잔여(1) + 잔여수면(2) + 날짜(3~) + 통계
         EXTRA_COLS = 2  # 휴가잔여, 잔여수면
@@ -268,26 +299,42 @@ class ResultTab(QWidget):
                     item.setBackground(QBrush(WEEKEND_BG))
 
                 # 요청사항 미반영 체크 로직
-                req_code = req_map.get((nurse.id, d), "")
+                key = (nurse.id, d)
+                req_codes = req_map.get(key, [])
                 is_violation = False
+                req_display = ""
 
-                if req_code:
+                if req_codes:
+                    is_or = is_or_map.get(key, False)
+                    req_display = "/".join(req_codes) if is_or else req_codes[0]
+
                     # 1. 제외 요청 처리 ("D 제외", "E 제외", "N 제외")
-                    if "제외" in req_code:
-                        # 예: "D 제외" -> banned_shift는 "D"
-                        banned_shift = req_code.split()[0] 
-                        if shift == banned_shift:
+                    if any("제외" in c for c in req_codes):
+                        for c in req_codes:
+                            if "제외" in c:
+                                banned_shift = c.split()[0]
+                                if shift == banned_shift:
+                                    is_violation = True
+                                    break
+
+                    # 2. 일반/OR 요청: 하나라도 매칭되면 충족
+                    else:
+                        matched = False
+                        for c in req_codes:
+                            # 휴무 동등 비교: 요청이 휴무 & 실제도 휴무면 매칭
+                            if c in off_set and shift in off_set:
+                                matched = True
+                                break
+                            if c == shift:
+                                matched = True
+                                break
+                        if not matched:
                             is_violation = True
-                    
-                    # 2. 일반 요청 처리 ("OFF", "D", "E", "N" 등)
-                    # 요청한 근무와 실제 근무가 다르면 위반
-                    elif req_code != shift:
-                        is_violation = True
 
                 # 위반 시 테두리 표시 (Delegate가 UserRole을 확인하여 그림)
                 if is_violation:
                     item.setData(Qt.ItemDataRole.UserRole, True)
-                    item.setToolTip(f"요청사항 미반영!\n(요청: {req_code} ↔ 실제: {shift})")
+                    item.setToolTip(f"요청사항 미반영!\n(요청: {req_display} ↔ 실제: {shift})")
 
                 item.setFlags(item.flags() | Qt.ItemFlag.ItemIsEditable)
                 self.table.setItem(row, col, item)

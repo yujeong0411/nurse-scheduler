@@ -1,7 +1,7 @@
 """스케줄링 엔진 - Google OR-Tools CP-SAT Solver
 응급실 간호사 근무표 생성
 
-14개 타입(D/E/N/주/OFF/법휴/수면/생휴/휴가/특휴/공가/경가/보수/POFF)을 솔버 변수로 사용.
+17개 타입(D/중2/E/N/주/OFF/법휴/수면/생휴/휴가/특휴/공가/경가/보수/POFF/필수/번표)을 솔버 변수로 사용.
 모든 휴무 타입을 솔버가 직접 관리하여 최적 배치.
 
 원칙:
@@ -78,8 +78,10 @@ _공가 = 11
 _경가 = 12
 _보수 = 13
 _POFF = 14
+_필수 = 15
+_번표 = 16
 
-NUM_TYPES = 15
+NUM_TYPES = 17
 
 # 인덱스 ↔ 이름
 IDX_TO_NAME = {
@@ -89,13 +91,13 @@ IDX_TO_NAME = {
     _E: "E", _N: "N",
     _주: "주", _OFF: "OFF", _법휴: "법휴", _수면: "수면",
     _생휴: "생휴", _휴가: "휴가", _특휴: "특휴", _공가: "공가", _경가: "경가",
-    _보수: "보수", _POFF: "POFF",
+    _보수: "보수", _POFF: "POFF", _필수: "필수", _번표: "번표",
 }
 NAME_TO_IDX = {v: k for k, v in IDX_TO_NAME.items()}
 
 # 휴무 그룹
 REGULAR_OFF = [_주, _OFF]                                               # 주당 정규 휴무 (주1 + OFF1 = 2)
-EXTRA_OFF = [_법휴, _수면, _생휴, _휴가, _특휴, _공가, _경가, _보수, _POFF]  # 추가 휴무 (주당 예산 외)
+EXTRA_OFF = [_법휴, _수면, _생휴, _휴가, _특휴, _공가, _경가, _보수, _POFF, _필수, _번표]  # 추가 휴무 (주당 예산 외)
 ALL_OFF = REGULAR_OFF + EXTRA_OFF                                       # 연속근무 중단 인정 대상
 
 # 근무 패밀리 (인원 집계용)
@@ -120,6 +122,138 @@ FORBIDDEN_PAIRS = [
     if SHIFT_LEVEL[si] > SHIFT_LEVEL[sj]
 ]
 # → (N,D), (N,중2), (N,E), (E,D), (E,중2), (중2,D)
+
+
+def validate_requests(
+    nurses: list[Nurse],
+    requests: list[Request],
+    rules: Rules,
+    start_date: date,
+) -> list[str]:
+    """솔버 실행 전 요청사항 사전 검증
+
+    Returns: 경고/오류 메시지 리스트 (빈 리스트 = 문제 없음)
+    """
+    warnings = []
+    num_days = 28
+    nurse_map = {n.id: n for n in nurses}
+    num_nurses = len(nurses)
+
+    def weekday_of(di):
+        return (start_date + timedelta(days=di)).weekday()
+
+    wd_names = ["월", "화", "수", "목", "금", "토", "일"]
+
+    # ── 인원 수 체크 ──
+    중2_exists = any(n.role == "중2" for n in nurses)
+    중2_per_weekday = rules.daily_M if 중2_exists else 0
+    min_staff = rules.daily_D + rules.daily_E + rules.daily_N + 중2_per_weekday
+    if num_nurses < min_staff:
+        warnings.append(
+            f"간호사 {num_nurses}명 < 일일 최소 인원 {min_staff}명 "
+            f"(D{rules.daily_D}+E{rules.daily_E}+N{rules.daily_N}+중2{중2_per_weekday})"
+        )
+
+    # ── base_off 계산 (H20과 동일) ──
+    num_weekdays = sum(1 for di in range(num_days) if weekday_of(di) < 5)
+    num_weekends = num_days - num_weekdays
+    total_work_slots = (
+        num_weekdays * (rules.daily_D + 중2_per_weekday + rules.daily_E + rules.daily_N)
+        + num_weekends * (rules.daily_D + rules.daily_E + rules.daily_N)
+    )
+    total_off_slots = num_nurses * num_days - total_work_slots
+    extra_off_4day = 4
+    n_fourday = sum(1 for n in nurses if n.is_4day_week)
+    base_off = round(
+        (total_off_slots - extra_off_4day * n_fourday) / max(num_nurses, 1)
+    )
+
+    # ── 간호사별 요청 검증 ──
+    nurse_reqs = {}
+    for r in requests:
+        if r.nurse_id not in nurse_map:
+            continue
+        if r.day < 1 or r.day > num_days:
+            continue
+        nurse_reqs.setdefault(r.nurse_id, []).append(r)
+
+    for nid, reqs in nurse_reqs.items():
+        nurse = nurse_map[nid]
+        hard_reqs = [r for r in reqs if r.is_hard]
+
+        # 1. 생휴: 남자 불가, 여성 월 1회
+        menst_reqs = [r for r in hard_reqs if r.code == "생휴"]
+        if menst_reqs:
+            if nurse.is_male:
+                days = ", ".join(f"{r.day}일" for r in menst_reqs)
+                warnings.append(f"{nurse.name}: 남자 간호사 생휴 불가 ({days})")
+            elif len(menst_reqs) > 1:
+                days = ", ".join(f"{r.day}일" for r in menst_reqs)
+                warnings.append(
+                    f"{nurse.name}: 생휴 {len(menst_reqs)}회 신청 ({days})"
+                    f" → 최대 1회"
+                )
+
+        # 2. 주 요일 불일치
+        ju_reqs = [r for r in hard_reqs if r.code == "주"]
+        if ju_reqs:
+            if nurse.fixed_weekly_off is None:
+                days = ", ".join(f"{r.day}일" for r in ju_reqs)
+                warnings.append(
+                    f"{nurse.name}: 고정 주휴 미설정 상태에서 주휴 요청 ({days})"
+                )
+            else:
+                for r in ju_reqs:
+                    wd = weekday_of(r.day - 1)
+                    if wd != nurse.fixed_weekly_off:
+                        warnings.append(
+                            f"{nurse.name}: {r.day}일({wd_names[wd]}) 주휴 요청"
+                            f" → 고정 주휴일은 {wd_names[nurse.fixed_weekly_off]}"
+                        )
+
+        # 3. 같은 주에 하드 OFF 계열 과다 (주+법휴+기타 하드 off가 주 전체를 넘는지)
+        #    OFF 자체는 soft이므로 INFEASIBLE 원인은 아님 → 경고만
+        for w in range(4):
+            w_start = w * 7 + 1
+            w_end = w_start + 6
+            week_hard = [r for r in hard_reqs if w_start <= r.day <= w_end]
+            if len(week_hard) >= 5:
+                warnings.append(
+                    f"{nurse.name}: {w+1}주차({w_start}~{w_end}일)에 "
+                    f"확정 휴무 {len(week_hard)}일 → 근무 배정 어려움"
+                )
+
+        # 4. 휴가 잔여 초과
+        vac_reqs = [r for r in hard_reqs if r.code == "휴가"]
+        if len(vac_reqs) > nurse.vacation_days:
+            warnings.append(
+                f"{nurse.name}: 휴가 {len(vac_reqs)}일 신청"
+                f" (잔여 {nurse.vacation_days}일)"
+            )
+
+        # 5. 하드 휴무 과다 → H20 범위 초과
+        hard_off_count = len(hard_reqs)
+        limit = (base_off + extra_off_4day + 2) if nurse.is_4day_week else (base_off + 2)
+        if hard_off_count > limit:
+            warnings.append(
+                f"{nurse.name}: 확정 휴무 {hard_off_count}일"
+                f" (허용 범위 최대 {limit}일)"
+            )
+
+        # 6. 같은 날 모순 (근무 요청 + 같은 근무 제외)
+        day_reqs = {}
+        for r in reqs:
+            day_reqs.setdefault(r.day, []).append(r)
+        for day, day_r_list in day_reqs.items():
+            codes = [r.code for r in day_r_list]
+            for shift in ["D", "E", "N"]:
+                if shift in codes and f"{shift} 제외" in codes:
+                    warnings.append(
+                        f"{nurse.name}: {day}일에 {shift} 요청과"
+                        f" {shift} 제외 동시 신청"
+                    )
+
+    return warnings
 
 
 def solve_schedule(
@@ -391,6 +525,7 @@ def solve_schedule(
     
     # 요청 처리
     req_hard_days = set() # 요청 들어온 날짜 기록
+    menst_hard_used = {}  # nurse_id → 생휴 하드 처리 횟수 (최대 1)
     for r in requests:
         if not r.is_hard:
             continue
@@ -400,6 +535,14 @@ def solve_schedule(
         di = r.day - 1
         if di < 0 or di >= num_days:
             continue
+        # 생휴: 남자 불가, 여성도 월 1회만 하드 처리
+        if r.code == "생휴":
+            if nurses[ni].is_male:
+                continue
+            menst_hard_used.setdefault(r.nurse_id, 0)
+            if menst_hard_used[r.nurse_id] >= 1:
+                continue  # 2번째 생휴 요청 → 무시
+            menst_hard_used[r.nurse_id] += 1
         req_hard_days.add((ni, di))
         if r.code in NAME_TO_IDX:
             si = NAME_TO_IDX[r.code]
@@ -538,7 +681,7 @@ def solve_schedule(
         hard_counts = {}
         for code, idx in [("생휴", _생휴), ("수면", _수면), ("휴가", _휴가),
                           ("특휴", _특휴), ("공가", _공가), ("경가", _경가),
-                          ("보수", _보수)]:
+                          ("보수", _보수), ("필수", _필수), ("번표", _번표)]:
             hard_counts[idx] = sum(
                 1 for r in requests
                 if r.is_hard and r.nurse_id == nurse.id
@@ -547,12 +690,13 @@ def solve_schedule(
                 and (ni, r.day - 1) not in fixed_off_days
             )
 
-        # 생휴: 여성 월 1회 (하드 제약)
-        hard_menst = hard_counts[_생휴]
+        # 생휴: 여성 월 1회 (하드 제약), 남자 0
         menst_sum = sum(shifts[(ni, di, _생휴)] for di in range(num_days))
-        if hard_menst > 0:
-            model.add(menst_sum == hard_menst)
-        elif not nurse.is_male and rules.menstrual_leave:
+        if nurse.is_male:
+            model.add(menst_sum == 0)
+        elif hard_counts[_생휴] > 0:
+            model.add(menst_sum == 1)  # 요청 2건이어도 최대 1
+        elif rules.menstrual_leave:
             model.add(menst_sum == 1)
         else:
             model.add(menst_sum == 0)
@@ -602,8 +746,8 @@ def solve_schedule(
                             >= eff_threshold
                         ).only_enforce_if(shifts[(ni, di, _수면)])
 
-        # 특휴, 공가, 경가, 보수: == hard_request_count (요청 시만)
-        for idx in [_특휴, _공가, _경가, _보수]:
+        # 특휴, 공가, 경가, 보수, 필수, 번표: == hard_request_count (요청 시만)
+        for idx in [_특휴, _공가, _경가, _보수, _필수, _번표]:
             model.add(
                 sum(shifts[(ni, di, idx)] for di in range(num_days))
                 == hard_counts[idx]
@@ -749,18 +893,21 @@ def solve_schedule(
             key = (ni, di)
             if key not in or_groups:
                 or_groups[key] = []
-            if r.code == "OFF":
-                or_groups[key].extend(ALL_OFF)
-            elif r.code in NAME_TO_IDX:
-                or_groups[key].append(NAME_TO_IDX[r.code])
+            if r.code in NAME_TO_IDX:
+                si = NAME_TO_IDX[r.code]
+                if si in ALL_OFF:
+                    or_groups[key].extend(ALL_OFF)  # 휴무 요청 → 어떤 off든 충족
+                else:
+                    or_groups[key].append(si)
             continue
 
-        if r.code == "OFF":
-            # OFF 요청 → 어떤 off 타입이든 쉬면 충족
-            obj.append(100 * sum(shifts[(ni, di, oi)] for oi in ALL_OFF))
-        elif r.code in NAME_TO_IDX:
+        if r.code in NAME_TO_IDX:
             si = NAME_TO_IDX[r.code]
-            obj.append(100 * shifts[(ni, di, si)])
+            if si in ALL_OFF:
+                # 휴무 요청 → 어떤 off 타입이든 쉬면 충족
+                obj.append(100 * sum(shifts[(ni, di, oi)] for oi in ALL_OFF))
+            else:
+                obj.append(100 * shifts[(ni, di, si)])
 
     # ── S1a. OR 그룹 반영 (+100) ──
     # 하루에 shift는 1개만 → sum 최대 1 → 보상 1회
