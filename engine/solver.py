@@ -695,7 +695,18 @@ def solve_schedule(
         (total_off_slots - extra_off_4day * n_fourday) / max(num_nurses, 1)
     )
 
+    # 하드 휴무가 base_off 범위를 초과하는 간호사는 H20 제외 (장기 휴가 등)
+    def _hard_off_count(ni):
+        nid = nurses[ni].id
+        return sum(
+            1 for r in requests
+            if r.nurse_id == nid and r.is_hard
+            and 1 <= r.day <= num_days
+        )
+
     for ni in regular_nis:
+        if _hard_off_count(ni) > base_off + 2:
+            continue  # 하드 요청이 범위 초과 → 제약 생략
         off_sum = sum(
             shifts[(ni, di, oi)]
             for di in range(num_days) for oi in ALL_OFF
@@ -706,6 +717,8 @@ def solve_schedule(
     if fourday_nis:
         fourday_target = base_off + extra_off_4day
         for ni in fourday_nis:
+            if _hard_off_count(ni) > fourday_target + 2:
+                continue  # 하드 요청이 범위 초과 → 제약 생략
             off_sum = sum(
                 shifts[(ni, di, oi)]
                 for di in range(num_days) for oi in ALL_OFF
@@ -720,6 +733,7 @@ def solve_schedule(
 
     # ── S1. 희망 요청 반영 (+100) ──
     # 공정성 페널티(-5~-8)보다 충분히 높아야 요청이 반영됨
+    or_groups = {}  # (ni, di) → [shift_index, ...]
     for r in requests:
         if r.is_hard or r.is_exclude:
             continue
@@ -730,12 +744,29 @@ def solve_schedule(
         if di < 0 or di >= num_days:
             continue
 
+        # OR 요청은 별도 그룹 처리
+        if r.is_or:
+            key = (ni, di)
+            if key not in or_groups:
+                or_groups[key] = []
+            if r.code == "OFF":
+                or_groups[key].extend(ALL_OFF)
+            elif r.code in NAME_TO_IDX:
+                or_groups[key].append(NAME_TO_IDX[r.code])
+            continue
+
         if r.code == "OFF":
             # OFF 요청 → 어떤 off 타입이든 쉬면 충족
             obj.append(100 * sum(shifts[(ni, di, oi)] for oi in ALL_OFF))
         elif r.code in NAME_TO_IDX:
             si = NAME_TO_IDX[r.code]
             obj.append(100 * shifts[(ni, di, si)])
+
+    # ── S1a. OR 그룹 반영 (+100) ──
+    # 하루에 shift는 1개만 → sum 최대 1 → 보상 1회
+    for (ni, di), si_list in or_groups.items():
+        unique_si = list(set(si_list))
+        obj.append(100 * sum(shifts[(ni, di, si)] for si in unique_si))
 
     # ── S2. D/E/N 횟수 공정성 (-5) ──
     shift_counts = {}

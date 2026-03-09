@@ -378,7 +378,7 @@ def _normalize_code(val: str) -> str | None:
     if not val:
         return None
 
-    # 슬래시 복합 코드 (D/VAC, N/OFF 등) → 무시
+    # 슬래시 복합 코드 (D/VAC, N/OFF 등) → import_requests에서 OR 처리
     if "/" in val:
         return None
 
@@ -623,6 +623,21 @@ def import_requests(
                 continue
             cell = row[col - 1] if col - 1 < len(row) else None
             val = str(cell.value).strip() if cell and cell.value else ""
+            if not val:
+                continue
+
+            # 슬래시 코드 → OR 요청 2건 생성
+            if "/" in val:
+                parts = val.split("/")
+                or_codes = []
+                for part in parts:
+                    c = _normalize_code(part.strip())
+                    if c is not None:
+                        or_codes.append(c)
+                for c in or_codes:
+                    requests.append(Request(nurse_id=nid, day=d, code=c, is_or=True))
+                continue
+
             code = _normalize_code(val)
 
             if code is None:
@@ -753,3 +768,70 @@ def import_prev_schedule(
 
     wb.close()
     return tail_result, n_counts
+
+
+# ══════════════════════════════════════════
+# 파일 날짜 탐지
+# ══════════════════════════════════════════
+
+def detect_file_month(filepath: str) -> tuple[int | None, int | None]:
+    """엑셀 파일에서 연도/월 정보를 탐지
+
+    파일명 → 파일 내용 순으로 검색.
+    고신뢰 패턴(YYYY.MM, YYYY년 M월)을 먼저 시도하고,
+    없으면 짧은 셀에서 "X월" 패턴을 탐색.
+
+    Returns:
+        (year, month) — 탐지 실패 시 각각 None
+    """
+    import os
+
+    # ── 1단계: 파일명에서 탐지 ──
+    filename = os.path.basename(filepath)
+    m = re.search(r'(\d{4})\s*[년._\-]\s*(\d{1,2})', filename)
+    if m:
+        y, mo = int(m.group(1)), int(m.group(2))
+        if 1 <= mo <= 12 and 2000 <= y <= 2099:
+            return y, mo
+
+    # ── 2단계: 파일 내용에서 탐지 ──
+    wb = load_workbook(filepath, read_only=True, data_only=True)
+    ws = wb.active
+
+    # Pass 1: 고신뢰 — "YYYY년 M월" 또는 "YYYY.MM"
+    for row in ws.iter_rows(min_row=1, max_row=10):
+        for cell in row:
+            val = str(cell.value).strip() if cell.value else ""
+            if not val:
+                continue
+
+            # "2026년 3월" or "2026년3월"
+            m = re.search(r'(\d{4})\s*년\s*(\d{1,2})\s*월', val)
+            if m:
+                wb.close()
+                return int(m.group(1)), int(m.group(2))
+
+            # "2026.03.01" or "2026-03-01" or "2026/3"
+            m = re.search(r'(\d{4})[.\-/](\d{1,2})', val)
+            if m:
+                y, mo = int(m.group(1)), int(m.group(2))
+                if 1 <= mo <= 12 and 2000 <= y <= 2099:
+                    wb.close()
+                    return y, mo
+
+    # Pass 2: 저신뢰 — 짧은 셀(제목 등)에서 "X월" 탐색
+    #   긴 안내 텍스트("9월 이상 야근..." 등)에서 오탐지 방지
+    for row in ws.iter_rows(min_row=1, max_row=5):
+        for cell in row:
+            val = str(cell.value).strip() if cell.value else ""
+            if not val or len(val) > 30:
+                continue
+            m = re.search(r'(\d{1,2})\s*월', val)
+            if m:
+                mo = int(m.group(1))
+                if 1 <= mo <= 12:
+                    wb.close()
+                    return None, mo
+
+    wb.close()
+    return None, None

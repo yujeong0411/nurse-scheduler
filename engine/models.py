@@ -178,7 +178,8 @@ class Request:
     """
     nurse_id: int                   # 어느 간호사가
     day: int                        # 며칠에 (1~31)
-    code: str                       # 뭘 원하는지 
+    code: str                       # 뭘 원하는지
+    is_or: bool = False             # OR 요청 (슬래시 코드: D/VAC 등) → 항상 soft
 
     def __post_init__(self):
         self.code = self.code.strip()  # 공백 제거
@@ -195,6 +196,8 @@ class Request:
     @property
     def is_hard(self) -> bool:
         """반드시 지켜야 하는 확정 요청인가?"""
+        if self.is_or:
+            return False  # OR 요청은 항상 soft
         return self.code in ("주", "법휴", "휴가", "특휴", "생휴", "수면", "공가", "경가", "보수")   # "OFF"는 소프트(S1)로 처리 — H11이 주당 2개 보장
 
     @property
@@ -224,11 +227,19 @@ class Request:
         return self.code in OFF_TYPES or self.code == "OFF"
 
     def to_dict(self):
-        return {"nurse_id": self.nurse_id, "day": self.day, "code": self.code}
+        result = {"nurse_id": self.nurse_id, "day": self.day, "code": self.code}
+        if self.is_or:
+            result["is_or"] = True
+        return result
 
     @classmethod
     def from_dict(cls, d):
-        return cls(**d)
+        return cls(
+            nurse_id=d["nurse_id"],
+            day=d["day"],
+            code=d["code"],
+            is_or=d.get("is_or", False),
+        )
 
 @dataclass
 class Rules:
@@ -431,15 +442,21 @@ class DataManager:
         data = self._load_json("rules.json")
         return Rules.from_dict(data) if data else Rules()
 
+    def save_settings(self, data: dict):
+        self._save_json("settings.json", data, backup=False)
+
+    def load_settings(self) -> dict:
+        return self._load_json("settings.json", {})
+
     def save_requests(self, requests: list, start_date: date):
         self._save_json(
-            f"requests_{start_date.isoformat()}.json",
+            "requests.json",
             [r.to_dict() for r in requests],
             backup=False,
         )
 
     def load_requests(self, start_date: date) -> list:
-        data = self._load_json(f"requests_{start_date.isoformat()}.json", [])
+        data = self._load_json("requests.json", [])
         return [Request.from_dict(d) for d in data]
 
     def save_schedule(self, schedule_data: dict, start_date: date):

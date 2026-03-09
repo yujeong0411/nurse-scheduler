@@ -50,7 +50,18 @@ class SetupTab(QWidget):
         self.date_edit = QDateEdit()
         self.date_edit.setCalendarPopup(True)
         self.date_edit.setDisplayFormat("yyyy-MM-dd")
-        self.date_edit.setDate(QDate(2026, 3, 1))
+        # 저장된 시작일 불러오기
+        settings = self.dm.load_settings()
+        saved = settings.get("start_date")
+        if saved:
+            try:
+                sd = date.fromisoformat(saved)
+                self.date_edit.setDate(QDate(sd.year, sd.month, sd.day))
+            except (ValueError, TypeError):
+                self.date_edit.setDate(QDate.currentDate())
+        else:
+            self.date_edit.setDate(QDate.currentDate())
+
         self.date_edit.setFixedWidth(140)
         self.date_edit.setAlignment(Qt.AlignmentFlag.AlignCenter)
         date_layout.addWidget(self.date_edit)
@@ -396,7 +407,36 @@ class SetupTab(QWidget):
         if not path:
             return
         try:
-            from engine.excel_io import import_requests, import_nurses_from_request
+            from engine.excel_io import import_requests, import_nurses_from_request, detect_file_month
+
+            # 날짜 검증
+            start_date = self.get_start_date()
+            file_year, file_month = detect_file_month(path)
+
+            if file_month is not None:
+                # 날짜 탐지 성공 → 불일치 검사
+                mismatch_parts = []
+                if file_year and file_year != start_date.year:
+                    mismatch_parts.append(
+                        f"  연도: 파일 = {file_year}년,  설정 = {start_date.year}년"
+                    )
+                if file_month != start_date.month:
+                    mismatch_parts.append(
+                        f"  월: 파일 = {file_month}월,  설정 = {start_date.month}월"
+                    )
+
+                if mismatch_parts:
+                    detail = "\n".join(mismatch_parts)
+                    reply = QMessageBox.warning(
+                        self, "날짜 불일치",
+                        f"파일의 날짜와 설정된 시작일이 다릅니다.\n\n"
+                        f"{detail}\n\n"
+                        f"시작일을 조정하거나 파일을 확인해주세요.\n"
+                        f"그래도 불러오시겠습니까?",
+                        QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+                    )
+                    if reply == QMessageBox.StandardButton.No:
+                        return
 
             # 간호사가 없으면 신청표에서 이름 추출
             if not self.nurses:
@@ -444,6 +484,10 @@ class SetupTab(QWidget):
         self.period_label.setText(
             f"▶ {sd.strftime('%Y.%m.%d')} ~ {ed.strftime('%Y.%m.%d')} (28일)"
         )
+        # 시작일 저장
+        settings = self.dm.load_settings()
+        settings["start_date"] = sd.isoformat()
+        self.dm.save_settings(settings)
 
     def get_nurses(self) -> list[Nurse]:
         self._sync_from_table()

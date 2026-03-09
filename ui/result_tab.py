@@ -67,10 +67,21 @@ class ResultTab(QWidget):
         self.table.setSelectionMode(QTableWidget.SelectionMode.SingleSelection)
         layout.addWidget(self.table, stretch=3)
 
-        # 하단 통계
-        self.stats_group = QGroupBox("통계")
-        self.stats_group.setVisible(False)
-        stats_layout = QVBoxLayout(self.stats_group)
+        # 하단 통계 (접기/펼치기)
+        self.stats_toggle = QPushButton("▼ 통계")
+        self.stats_toggle.setStyleSheet(
+            "text-align: left; padding: 6px 12px; font-weight: bold; "
+            "font-size: 11pt; border: 1px solid #ccc; border-radius: 4px; "
+            "background: #f5f5f5;"
+        )
+        self.stats_toggle.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.stats_toggle.clicked.connect(self._toggle_stats)
+        self.stats_toggle.setVisible(False)
+        layout.addWidget(self.stats_toggle)
+
+        self.stats_content = QWidget()
+        stats_layout = QVBoxLayout(self.stats_content)
+        stats_layout.setContentsMargins(8, 4, 8, 4)
 
         self.stats_label = QLabel("")
         self.stats_label.setWordWrap(True)
@@ -81,7 +92,8 @@ class ResultTab(QWidget):
         self.pattern_label.setStyleSheet("color: #c0392b;")
         stats_layout.addWidget(self.pattern_label)
 
-        layout.addWidget(self.stats_group, stretch=1)
+        self.stats_content.setVisible(False)
+        layout.addWidget(self.stats_content)
 
         # 안내 라벨
         self.placeholder = QLabel(
@@ -127,7 +139,8 @@ class ResultTab(QWidget):
                 self.dm.save_schedule(self.schedule.schedule_data, self.start_date)
                 self.generate_btn.setVisible(False)
                 self.placeholder.setVisible(False)
-                self.stats_group.setVisible(True)
+                self.stats_toggle.setVisible(True)
+                self.stats_content.setVisible(True)
                 self.regenerate_btn.setVisible(True)
                 self.export_btn.setVisible(True)
             else:
@@ -595,12 +608,22 @@ class ResultTab(QWidget):
             self.stats_label.setText("")
             self.pattern_label.setText("")
 
+    def _toggle_stats(self):
+        visible = self.stats_content.isVisible()
+        self.stats_content.setVisible(not visible)
+        self.stats_toggle.setText("▶ 통계" if visible else "▼ 통계")
+
     def _export_excel(self):
         if not self.schedule:
             return
+        end_date = self.start_date + timedelta(days=27)
+        default_name = (
+            f"근무표_{self.start_date.strftime('%y%m%d')}"
+            f"~{end_date.strftime('%y%m%d')}.xlsx"
+        )
         path, _ = QFileDialog.getSaveFileName(
             self, "엑셀로 저장",
-            f"근무표_{self.start_date.isoformat()}.xlsx",
+            default_name,
             "Excel Files (*.xlsx)"
         )
         if path:

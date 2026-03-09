@@ -75,8 +75,17 @@ def evaluate_schedule(schedule: Schedule, rules: Rules) -> dict:
     # ── 요청 반영률 ──
     req_total = 0
     req_fulfilled = 0
+
+    # OR 요청 그룹핑: (nurse_id, day) → [code, ...]
+    or_groups = {}
     for r in schedule.requests:
         if r.is_hard or r.is_exclude:
+            continue
+        if r.is_or:
+            key = (r.nurse_id, r.day)
+            if key not in or_groups:
+                or_groups[key] = []
+            or_groups[key].append(r.code)
             continue
         req_total += 1
         actual = schedule.get_shift(r.nurse_id, r.day)
@@ -84,6 +93,17 @@ def evaluate_schedule(schedule: Schedule, rules: Rules) -> dict:
             req_fulfilled += 1
         elif actual == r.code:
             req_fulfilled += 1
+
+    # OR 그룹: 그룹당 1건, 하나라도 매칭되면 충족
+    for (nid, day), codes in or_groups.items():
+        req_total += 1
+        actual = schedule.get_shift(nid, day)
+        if any(
+            (c == "OFF" and actual in OFF_TYPES) or actual == c
+            for c in codes
+        ):
+            req_fulfilled += 1
+
     req_rate = req_fulfilled / req_total if req_total > 0 else 1.0
 
     # ── 규칙 위반 건수 ──
