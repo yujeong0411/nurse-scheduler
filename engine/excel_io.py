@@ -378,6 +378,10 @@ def _normalize_code(val: str) -> str | None:
     if not val:
         return None
 
+    # 슬래시 복합 코드 (D/VAC, N/OFF 등) → 무시
+    if "/" in val:
+        return None
+
     # 대소문자 통일
     upper = val.upper()
 
@@ -386,6 +390,13 @@ def _normalize_code(val: str) -> str | None:
         no_space = val.replace(" ", "")
         if no_space == f"{s}제외":
             return f"{s} 제외"
+
+    # 괄호 포함 시 괄호 앞 부분만 추출 (예: "공가(예비군)" → "공가")
+    if "(" in val:
+        val = val[:val.index("(")].strip()
+        upper = val.upper()
+        if not val:
+            return None
 
     # 정확한 매칭
     exact_map = {
@@ -410,8 +421,8 @@ def _normalize_code(val: str) -> str | None:
     if val in exact_map:
         return exact_map[val]
 
-    # "수면(1,2월)", "수면(2월)" 등 → "수면"
-    if val.startswith("수면"):
+    # "수면" 포함 시 → "수면" (예: "3월수면", "1,2월수면", "수면(2월)")
+    if "수면" in val:
         return "수면"
 
     # off 소문자
@@ -419,6 +430,76 @@ def _normalize_code(val: str) -> str | None:
         return "OFF"
 
     return None
+
+
+def _find_day_columns(ws) -> tuple[int, dict[int, int], int, int] | None:
+    """날짜 헤더 행, 날짜 열 매핑, 이름 열, 데이터 시작 행을 탐색
+
+    열 순서대로 스케줄 day 1, 2, 3, ... 으로 매핑.
+    4주(28일) 스케줄이 1일 시작이 아닐 수 있음 (예: 29일, 30일, 31일, 1일, ..., 25일).
+
+    Returns:
+        (header_row, day_cols, name_col, data_start) 또는 None (탐색 실패)
+        - header_row: 날짜 헤더가 있는 행 번호
+        - day_cols: {schedule_day(1-based): column_index} 열 순서 기준
+        - name_col: 이름 열 번호
+        - data_start: 데이터 시작 행 번호
+    """
+    # ── 헤더/날짜 열 찾기 ──
+    header_row = None
+    raw_day_cols = []  # [(col_index, calendar_day)]
+
+    for row in ws.iter_rows(min_row=1, max_row=10):
+        for cell in row:
+            val = str(cell.value).strip() if cell.value else ""
+            raw = val[:-1].strip() if val.endswith("일") else val
+            try:
+                d = int(raw)
+                if 1 <= d <= 31:
+                    if header_row is None:
+                        header_row = cell.row
+                    if cell.row == header_row:
+                        raw_day_cols.append((cell.column, d))
+            except ValueError:
+                pass
+
+    if not header_row or not raw_day_cols:
+        return None
+
+    # ── 열 순서대로 스케줄 day 1, 2, 3, ... 매핑 ──
+    raw_day_cols.sort(key=lambda x: x[0])  # 열 위치 순 정렬
+    day_cols = {i + 1: col for i, (col, _cal_day) in enumerate(raw_day_cols)}
+
+    if not day_cols:
+        return None
+
+    # ── 이름 열 찾기 ──
+    min_day_col = min(day_cols.values())
+    name_col = 1  # 기본 A열
+
+    for search_row in range(max(1, header_row - 1), header_row + 3):
+        for row in ws.iter_rows(min_row=search_row, max_row=search_row,
+                                max_col=min_day_col - 1):
+            for cell in row:
+                val = str(cell.value).strip() if cell.value else ""
+                if val == "이름":
+                    name_col = cell.column
+
+    # ── 데이터 시작 행 찾기 ──
+    data_start = header_row + 1
+    for check in ws.iter_rows(min_row=header_row + 1,
+                              max_row=min(header_row + 3, ws.max_row),
+                              max_col=min_day_col + 6):
+        for cell in check:
+            val = str(cell.value).strip() if cell.value else ""
+            if val in ("이름", "일", "월", "화", "수", "목", "금", "토"):
+                data_start = check[0].row + 1
+                break
+        else:
+            continue
+        break
+
+    return header_row, day_cols, name_col, data_start
 
 
 def import_requests(
@@ -457,33 +538,16 @@ def import_requests(
     nurse_name_map = {n.name.strip(): n for n in nurses}
     num_days = 28
 
-    # ── 헤더/날짜 열 찾기 ──
-    header_row = None
-    day_cols = {}  # {day: col_index}
-
-    for row in ws.iter_rows(min_row=1, max_row=10):
-        for cell in row:
-            val = str(cell.value).strip() if cell.value else ""
-            # "1일" → "1", "2일" → "2" 변환 후 숫자 체크
-            raw = val[:-1].strip() if val.endswith("일") else val
-            try:
-                d = int(raw)
-                if 1 <= d <= 31:
-                    if header_row is None:
-                        header_row = cell.row
-                    if cell.row == header_row:
-                        day_cols[d] = cell.column
-            except ValueError:
-                pass
-
-    if not header_row or not day_cols:
+    result = _find_day_columns(ws)
+    if result is None:
         wb.close()
         return [], {}
 
-    # ── 이름/휴가/생휴/수면 열 찾기 ──
+    header_row, day_cols, name_col, data_start = result
+    min_day_col = min(day_cols.values())
+
+    # ── 휴가/생휴/수면 열 찾기 ──
     # 날짜 열 이전 컬럼에서만 검색 (뒤쪽 통계 영역 제외)
-    min_day_col = min(day_cols.values())  # 첫 날짜 열 (보통 E=5)
-    name_col = 1  # 기본 A열
     vac_col = None
     menst_col = None
     sleep_col = None
@@ -493,29 +557,12 @@ def import_requests(
                                 max_col=min_day_col - 1):
             for cell in row:
                 val = str(cell.value).strip() if cell.value else ""
-                if val == "이름":
-                    name_col = cell.column
-                elif val in ("휴가", "연차"):
+                if val in ("휴가", "연차"):
                     vac_col = cell.column
                 elif val in ("생휴", "생리"):
                     menst_col = cell.column
                 elif val == "수면":
                     sleep_col = cell.column
-
-    # ── 데이터 시작 행 찾기 ──
-    # header_row(날짜) 이후에 "이름"/"일"/"월" 등이 있으면 그 다음 행부터
-    data_start = header_row + 1
-    for check in ws.iter_rows(min_row=header_row + 1,
-                              max_row=min(header_row + 3, ws.max_row),
-                              max_col=min_day_col + 6):
-        for cell in check:
-            val = str(cell.value).strip() if cell.value else ""
-            if val in ("이름", "일", "월", "화", "수", "목", "금", "토"):
-                data_start = check[0].row + 1
-                break
-        else:
-            continue
-        break
 
     # ── 데이터 읽기 ──
     requests = []
@@ -604,53 +651,12 @@ def import_nurses_from_request(filepath: str) -> list[str]:
     wb = load_workbook(filepath, read_only=True, data_only=True)
     ws = wb.active
 
-    # ── 날짜 헤더 행 + 첫 날짜 열 찾기 ──
-    header_row = None
-    min_day_col = None
-    for row in ws.iter_rows(min_row=1, max_row=10):
-        for cell in row:
-            val = str(cell.value).strip() if cell.value else ""
-            raw = val[:-1].strip() if val.endswith("일") else val
-            try:
-                d = int(raw)
-                if 1 <= d <= 31:
-                    if header_row is None:
-                        header_row = cell.row
-                    if cell.row == header_row:
-                        if min_day_col is None or cell.column < min_day_col:
-                            min_day_col = cell.column
-            except ValueError:
-                pass
-        if header_row:
-            break
-
-    if not header_row:
+    result = _find_day_columns(ws)
+    if result is None:
         wb.close()
         return []
 
-    # ── 이름 열 찾기 (import_requests와 동일 로직) ──
-    name_col = 1  # 기본 A열
-    for search_row in range(max(1, header_row - 1), header_row + 3):
-        for row in ws.iter_rows(min_row=search_row, max_row=search_row,
-                                max_col=(min_day_col or 5) - 1):
-            for cell in row:
-                val = str(cell.value).strip() if cell.value else ""
-                if val == "이름":
-                    name_col = cell.column
-
-    # ── 데이터 시작 행 찾기 (import_requests와 동일 로직) ──
-    data_start = header_row + 1
-    for check in ws.iter_rows(min_row=header_row + 1,
-                              max_row=min(header_row + 3, ws.max_row),
-                              max_col=(min_day_col or 5) + 6):
-        for cell in check:
-            val = str(cell.value).strip() if cell.value else ""
-            if val in ("이름", "일", "월", "화", "수", "목", "금", "토"):
-                data_start = check[0].row + 1
-                break
-        else:
-            continue
-        break
+    _header_row, _day_cols, name_col, data_start = result
 
     # ── 이름 추출 ──
     names = []
@@ -698,54 +704,12 @@ def import_prev_schedule(
     wb = load_workbook(filepath, read_only=True, data_only=True)
     ws = wb.active
 
-    # ── 날짜 헤더 행 찾기 ("1"/"1일" 등) ──
-    header_row = None
-    day_cols = {}
-
-    for row in ws.iter_rows(min_row=1, max_row=10):
-        for cell in row:
-            val = str(cell.value).strip() if cell.value else ""
-            # "1일" → "1", "2일" → "2" 변환 후 숫자 체크
-            raw = val[:-1].strip() if val.endswith("일") else val
-            try:
-                d = int(raw)
-                if 1 <= d <= 31:
-                    if header_row is None:
-                        header_row = cell.row
-                    if cell.row == header_row:
-                        day_cols[d] = cell.column
-            except ValueError:
-                pass
-
-    if not header_row or not day_cols:
+    result = _find_day_columns(ws)
+    if result is None:
         wb.close()
         return {}, {}
 
-    # ── 이름 열 찾기 (날짜 열 이전에서 검색) ──
-    min_day_col = min(day_cols.values())
-    name_col = 1  # 기본 A열
-
-    for search_row in range(max(1, header_row - 1), header_row + 3):
-        for row in ws.iter_rows(min_row=search_row, max_row=search_row,
-                                max_col=min_day_col - 1):
-            for cell in row:
-                val = str(cell.value).strip() if cell.value else ""
-                if val == "이름":
-                    name_col = cell.column
-
-    # ── 데이터 시작 행 (요일 행 등 건너뛰기) ──
-    data_start = header_row + 1
-    for check in ws.iter_rows(min_row=header_row + 1,
-                              max_row=min(header_row + 3, ws.max_row),
-                              max_col=min_day_col + 6):
-        for cell in check:
-            val = str(cell.value).strip() if cell.value else ""
-            if val in ("이름", "일", "월", "화", "수", "목", "금", "토"):
-                data_start = check[0].row + 1
-                break
-        else:
-            continue
-        break
+    header_row, day_cols, name_col, data_start = result
 
     max_day = max(day_cols.keys())
     all_day_range = sorted(day_cols.keys())
