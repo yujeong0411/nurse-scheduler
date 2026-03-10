@@ -88,12 +88,13 @@ _TAB1_REQUEST = _wrap("""
 <tr><td><span class="chip chip-off">생휴</span></td><td>생리 휴가 (여성만, 월 1회)</td></tr>
 <tr><td><span class="chip chip-off">수면</span></td><td>수면 보상 휴무 (N 근무 기준 자동 계산)</td></tr>
 <tr><td><span class="chip chip-off">휴가</span></td><td>연차 휴가</td></tr>
+<tr><td><span class="chip chip-off">병가</span></td><td>병가</td></tr>
 <tr><td><span class="chip chip-off">특휴</span></td><td>특별 휴가</td></tr>
 <tr><td><span class="chip chip-off">공가</span></td><td>공가</td></tr>
 <tr><td><span class="chip chip-off">경가</span></td><td>경조 휴가</td></tr>
 <tr><td><span class="chip chip-off">보수</span></td><td>보수 교육</td></tr>
-<tr><td><span class="chip chip-off">필수</span></td><td>필수 휴무 (반드시 쉬어야 하는 날)</td></tr>
-<tr><td><span class="chip chip-off">번표</span></td><td>번표 (근무표에 표시만)</td></tr>
+<tr><td><span class="chip chip-off">필수</span></td></tr>
+<tr><td><span class="chip chip-off">번표</span></td></tr>
 </table>
 
 <h3>제외 코드</h3>
@@ -224,7 +225,6 @@ _TAB3_RESULT = _wrap("""
 <li><b>일별 인원 집계</b> — 각 날짜별 D/E/N/중2/OFF 인원 수</li>
 <li><b>부족 인원 표시</b> — 최소 인원 미달 시 빨간 배경</li>
 <li><b>위반 상세</b> — 규칙 위반 내역 목록</li>
-<li><b>평가 점수</b> — 공정성 점수 (0~100, A~F 등급)</li>
 </ul>
 
 <h3>내보내기</h3>
