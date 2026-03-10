@@ -68,7 +68,7 @@ class ResultTab(QWidget):
         layout.addWidget(self.table, stretch=3)
 
         # 하단 통계 (접기/펼치기)
-        self.stats_toggle = QPushButton("▼ 통계")
+        self.stats_toggle = QPushButton("▼ 위반 내역")
         self.stats_toggle.setStyleSheet(
             "text-align: left; padding: 6px 12px; font-weight: bold; "
             "font-size: 11pt; border: 1px solid #ccc; border-radius: 4px; "
@@ -82,10 +82,6 @@ class ResultTab(QWidget):
         self.stats_content = QWidget()
         stats_layout = QVBoxLayout(self.stats_content)
         stats_layout.setContentsMargins(8, 4, 8, 4)
-
-        self.stats_label = QLabel("")
-        self.stats_label.setWordWrap(True)
-        stats_layout.addWidget(self.stats_label)
 
         self.pattern_label = QLabel("")
         self.pattern_label.setWordWrap(True)
@@ -614,25 +610,6 @@ class ResultTab(QWidget):
             from engine.evaluator import evaluate_schedule
             result = evaluate_schedule(self.schedule, self.rules)
 
-            lines = []
-            lines.append(
-                f"D 편차 {result['d_deviation']} | "
-                f"E 편차 {result['e_deviation']} | "
-                f"N 편차 {result['n_deviation']} | "
-                f"주말 편차 {result['weekend_deviation']}"
-            )
-
-            req = result['request_fulfilled']
-            lines.append(
-                f"요청 반영 {req['fulfilled']}/{req['total']} ({req['rate']}%)"
-            )
-
-            if result['rule_violations'] > 0:
-                lines.append(f"⚠️ 규칙 위반 {result['rule_violations']}건")
-
-            self.stats_label.setText("  |  ".join(lines))
-
-            # 역순 패턴 + 위반 상세
             detail_parts = []
             bad = result.get("bad_patterns", {})
             if bad:
@@ -652,13 +629,12 @@ class ResultTab(QWidget):
             self.pattern_label.setText("\n".join(detail_parts))
 
         except Exception:
-            self.stats_label.setText("")
             self.pattern_label.setText("")
 
     def _toggle_stats(self):
         visible = self.stats_content.isVisible()
         self.stats_content.setVisible(not visible)
-        self.stats_toggle.setText("▶ 통계" if visible else "▼ 통계")
+        self.stats_toggle.setText("▶ 위반 내역" if visible else "▼ 위반 내역")
 
     def _export_excel(self):
         if not self.schedule:

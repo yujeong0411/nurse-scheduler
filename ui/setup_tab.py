@@ -642,7 +642,7 @@ class PrevShiftDialog(QDialog):
             from engine.models import get_sleep_pair
 
             nurse_names = [n.name for n in self.nurses]
-            tail_result, n_counts, sleep_counts = import_prev_schedule(path, nurse_names, TAIL_DAYS)
+            tail_result, n_counts, sleep_counts, vac_days = import_prev_schedule(path, nurse_names, TAIL_DAYS)
 
             if not tail_result:
                 QMessageBox.warning(self, "오류", "매칭되는 간호사가 없습니다.")
@@ -690,11 +690,19 @@ class PrevShiftDialog(QDialog):
                                 combo.setCurrentIndex(0)
                 if nurse.name in n_counts:
                     nurse.prev_month_N = n_counts[nurse.name]
+                if nurse.name in vac_days:
+                    nurse.vacation_days = vac_days[nurse.name]
             self._building = False
 
             # 완료 메시지 구성
+            vac_matched = len(vac_days)
             msg = (f"{matched}명 매칭 완료 (전체 {len(self.nurses)}명)\n"
-                   f"전월 N 횟수 자동 반영 완료")
+                   f"전월 N 횟수 자동 반영 완료\n"
+                   f"휴가잔여 자동 반영: {vac_matched}명"
+                   if vac_matched else
+                   f"{matched}명 매칭 완료 (전체 {len(self.nurses)}명)\n"
+                   f"전월 N 횟수 자동 반영 완료\n"
+                   f"휴가잔여: 이전 근무표에 '휴가잔여' 열 없음 → 수동 확인 필요")
             if sleep_auto_applied:
                 msg += f"\n수면이월 자동 판단: {sleep_carry_count}명 이월"
             else:

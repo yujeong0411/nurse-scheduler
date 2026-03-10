@@ -13,6 +13,8 @@ import re
 from datetime import date, timedelta
 from openpyxl import Workbook, load_workbook
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+from openpyxl.styles.colors import Color
+from openpyxl.comments import Comment
 from openpyxl.utils import get_column_letter
 from engine.models import (
     Nurse, Request, Rules, Schedule,
@@ -40,6 +42,7 @@ FILLS = {
     "수면": PatternFill(start_color="fcfb92", fill_type="solid"),
     "POFF": PatternFill(start_color="fcfb92", fill_type="solid"),
     "휴가":   PatternFill(start_color="fcfb92", fill_type="solid"),
+    "병가":   PatternFill(start_color="fcfb92", fill_type="solid"),
     "특휴": PatternFill(start_color="fcfb92", fill_type="solid"),
     "공가":   PatternFill(start_color="fcfb92", fill_type="solid"),
     "경가":   PatternFill(start_color="fcfb92", fill_type="solid"),
@@ -48,26 +51,27 @@ FILLS = {
     "번표":   PatternFill(start_color="fcfb92", fill_type="solid"),
 }
 FONTS = {
-    "D":   Font(bold=True, size=9),
+    "D":   Font(size=10),
     # "D9":  Font(color="2E75B6", bold=True, size=9),  # 중간 계열
     # "D1":  Font(color="2E75B6", bold=True, size=9),  # 중간 계열
     # "중1":  Font(color="BF8F00", bold=True, size=9),  # 중간 계열
-    "중2":  Font(bold=True, size=9),
-    "E":   Font(bold=True, size=9),
-    "N":   Font(color="d61506", bold=True, size=9),
-    "OFF": Font(bold=True, size=9),
-    "주":   Font(bold=True, size=9),
-    "법휴": Font(bold=True, size=9),
-    "생휴":   Font(bold=True, size=9),
-    "수면": Font(bold=True, size=9),
-    "POFF": Font(bold=True, size=9),
-    "휴가": Font(bold=True, size=9),
-    "특휴": Font(bold=True, size=9),
-    "공가": Font(bold=True, size=9),
-    "경가": Font(bold=True, size=9),
-    "보수": Font(bold=True, size=9),
-    "필수": Font(bold=True, size=9),
-    "번표": Font(bold=True, size=9),
+    "중2":  Font(size=10),
+    "E":   Font(size=10),
+    "N":   Font(color="d61506", size=10),
+    "OFF": Font(size=10),
+    "주":   Font(size=10),
+    "법휴": Font(size=10),
+    "생휴":   Font(size=10),
+    "수면": Font(size=10),
+    "POFF": Font(size=10),
+    "휴가": Font(size=10),
+    "병가": Font(size=10),
+    "특휴": Font(size=10),
+    "공가": Font(size=10),
+    "경가": Font(size=10),
+    "보수": Font(size=10),
+    "필수": Font(size=10),
+    "번표": Font(size=10),
 }
 
 HEADER_FILL = PatternFill(start_color="013976", fill_type="solid")
@@ -79,6 +83,12 @@ THIN_BORDER = Border(
     right=Side(style="thin", color="D0D0D0"),
     top=Side(style="thin", color="D0D0D0"),
     bottom=Side(style="thin", color="D0D0D0"),
+)
+RED_BORDER = Border(
+    left=Side(style="medium", color="FF0000"),
+    right=Side(style="medium", color="FF0000"),
+    top=Side(style="medium", color="FF0000"),
+    bottom=Side(style="medium", color="FF0000"),
 )
 CENTER = Alignment(horizontal="center", vertical="center")
 
@@ -121,15 +131,28 @@ def export_schedule(schedule: Schedule, rules: Rules, filepath: str):
 
     # 요일 행 (행4)
     ws.cell(4, 1, "요일")
-    ws.cell(4, 1).font = Font(bold=True, size=9)
+    ws.cell(4, 1).font = Font(size=10)
     ws.cell(4, 1).alignment = CENTER
     for d in range(1, num_days + 1):
         wd = schedule.weekday_index(d)
         cell = ws.cell(4, d + 1, weekday_names[wd])
         cell.alignment = CENTER
-        cell.font = Font(size=8, bold=True, color="CC0000" if wd >= 5 else "333333")
+        cell.font = Font(size=9, color="CC0000" if wd >= 5 else "333333")
         if wd >= 5:
             cell.fill = WEEKEND_FILL
+
+    # 요청사항 조회 맵 구성
+    _off_set = set(OFF_TYPES)
+    req_map: dict[tuple[int, int], list[str]] = {}
+    is_or_map: dict[tuple[int, int], bool] = {}
+    for r in schedule.requests:
+        key = (r.nurse_id, r.day)
+        if r.is_or:
+            req_map.setdefault(key, []).append(r.code)
+            is_or_map[key] = True
+        else:
+            req_map[key] = [r.code]
+            is_or_map[key] = False
 
     # 간호사별 데이터
     weekend_days = [d for d in range(1, num_days + 1) if schedule.is_weekend(d)]
@@ -137,7 +160,7 @@ def export_schedule(schedule: Schedule, rules: Rules, filepath: str):
     for i, nurse in enumerate(nurses):
         row = 5 + i
         ws.cell(row, 1, nurse.name)
-        ws.cell(row, 1).font = Font(bold=True, size=10)
+        ws.cell(row, 1).font = Font(size=10)
         ws.cell(row, 1).alignment = CENTER
         ws.cell(row, 1).border = THIN_BORDER
 
@@ -190,14 +213,14 @@ def export_schedule(schedule: Schedule, rules: Rules, filepath: str):
             cell = ws.cell(row, num_days + 2 + j, val)
             cell.alignment = CENTER
             cell.border = THIN_BORDER
-            cell.font = Font(bold=True, size=9)
+            cell.font = Font(size=10)
 
     # 집계 행
     sep_row = 5 + len(nurses)
     for si, shift_type in enumerate(["D", "중2", "E", "N"]):
         agg_row = sep_row + 1 + si
         ws.cell(agg_row, 1, f"{shift_type} 인원")
-        ws.cell(agg_row, 1).font = Font(bold=True, size=9)
+        ws.cell(agg_row, 1).font = Font(size=10)
         ws.cell(agg_row, 1).alignment = CENTER
 
         for d in range(1, num_days + 1):
@@ -208,12 +231,12 @@ def export_schedule(schedule: Schedule, rules: Rules, filepath: str):
             cell = ws.cell(agg_row, d + 1, count)
             cell.alignment = CENTER
             cell.border = THIN_BORDER
-            cell.font = Font(bold=True, size=9)
+            cell.font = Font(size=10)
 
             min_req = rules.get_daily_staff(shift_type)
             if count < min_req:
                 cell.fill = SHORTAGE_FILL
-                cell.font = Font(bold=True, size=9, color="CC0000")
+                cell.font = Font(size=10, color="CC0000")
 
     # 컬럼 너비
     ws.column_dimensions["A"].width = 12
@@ -413,6 +436,7 @@ def _normalize_code(val: str) -> str | None:
         "생휴": "생휴", "생": "생휴",
         "수면": "수면",
         "VAC": "휴가", "휴가": "휴가", "휴": "휴가",
+        "병가": "병가", "병": "병가",
         "공가": "공가", "공": "공가",
         "경가": "경가", "경": "경가",
         "특휴": "특휴",
@@ -705,8 +729,8 @@ def import_prev_schedule(
     filepath: str,
     nurse_names: list[str],
     tail_days: int = 5,
-) -> tuple[dict[str, list[str]], dict[str, int], dict[str, int]]:
-    """이전 달 근무표 엑셀에서 마지막 tail_days일의 근무 + 전체 N 횟수 + 수면 횟수 추출
+) -> tuple[dict[str, list[str]], dict[str, int], dict[str, int], dict[str, int]]:
+    """이전 달 근무표 엑셀에서 마지막 tail_days일의 근무 + 전체 N 횟수 + 수면 횟수 + 휴가잔여 추출
 
     export_schedule 형식 기준:
       행3: 헤더 (이름, 1~28, 통계...)
@@ -718,10 +742,11 @@ def import_prev_schedule(
         tail_days: 추출할 마지막 일수 (기본 5)
 
     Returns:
-        (tail_shifts, n_counts, sleep_counts)
+        (tail_shifts, n_counts, sleep_counts, vac_days)
         - tail_shifts: {이름: [근무코드 리스트]} (가장 오래된 순)
         - n_counts: {이름: 전월 N 총 횟수}
         - sleep_counts: {이름: 전월 수면 사용 횟수}
+        - vac_days: {이름: 휴가잔여 일수}
     """
     wb = load_workbook(filepath, read_only=True, data_only=True)
     ws = wb.active
@@ -738,10 +763,25 @@ def import_prev_schedule(
     tail_start = max(1, max_day - tail_days + 1)
     tail_day_range = [d for d in range(tail_start, max_day + 1) if d in day_cols]
 
+    # 통계 열에서 "휴가잔여" 컬럼 위치 찾기 (날짜 열 이후)
+    max_day_col = max(day_cols.values())
+    vac_remain_col = None
+    for row in ws.iter_rows(min_row=header_row, max_row=header_row):
+        for col_idx, cell in enumerate(row, 1):
+            if not hasattr(cell, 'value') or col_idx <= max_day_col:
+                continue
+            val = str(cell.value).strip() if cell.value else ""
+            if val in ("휴가잔여", "휴가", "잔여", "잔여휴가", "연차잔여", "연차"):
+                vac_remain_col = col_idx
+                break
+        if vac_remain_col:
+            break
+
     name_set = set(n.strip() for n in nurse_names)
     tail_result = {}
     n_counts = {}
     sleep_counts = {}
+    vac_days = {}
     stop_words = {"요일", "이름", "일", "월", "화", "수", "목", "금", "토",
                   "off", "주", "수면", "생휴", "vac", "공가", "총",
                   "d 인원", "중2 인원", "e 인원", "n 인원"}
@@ -778,8 +818,18 @@ def import_prev_schedule(
         n_counts[name] = n_count
         sleep_counts[name] = sleep_count
 
+        # 휴가잔여 추출
+        if vac_remain_col and vac_remain_col - 1 < len(row):
+            cell = row[vac_remain_col - 1]
+            v = cell.value if hasattr(cell, 'value') else None
+            if v is not None:
+                try:
+                    vac_days[name] = int(v)
+                except (ValueError, TypeError):
+                    pass
+
     wb.close()
-    return tail_result, n_counts, sleep_counts
+    return tail_result, n_counts, sleep_counts, vac_days
 
 
 # ══════════════════════════════════════════

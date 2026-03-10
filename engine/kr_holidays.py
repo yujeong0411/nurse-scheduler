@@ -4,8 +4,8 @@ from datetime import date, timedelta
 import holidays
 
 
-def get_holidays_for_period(start_date: date, num_days: int = 28) -> list[tuple[int, str]]:
-    """시작일~시작일+num_days 기간의 공휴일 [(day_offset_1based, name), ...] 반환
+def get_holidays_for_period(start_date: date, num_days: int = 28) -> list[tuple[date, str]]:
+    """시작일~시작일+num_days 기간의 공휴일 [(date, name), ...] 반환
 
     기간이 2개 월에 걸칠 수 있으므로 관련 연도/월 모두 조회
     """
@@ -17,7 +17,7 @@ def get_holidays_for_period(start_date: date, num_days: int = 28) -> list[tuple[
     for offset in range(num_days):
         dt = start_date + timedelta(days=offset)
         if dt in kr:
-            result.append((offset + 1, kr[dt]))  # 1-based day offset
+            result.append((dt, kr[dt]))  # actual date
     return result
 
 

@@ -1,7 +1,7 @@
 """스케줄링 엔진 - Google OR-Tools CP-SAT Solver
 응급실 간호사 근무표 생성
 
-17개 타입(D/중2/E/N/주/OFF/법휴/수면/생휴/휴가/특휴/공가/경가/보수/POFF/필수/번표)을 솔버 변수로 사용.
+18개 타입(D/중2/E/N/주/OFF/법휴/수면/생휴/휴가/병가/특휴/공가/경가/보수/POFF/필수/번표)을 솔버 변수로 사용.
 모든 휴무 타입을 솔버가 직접 관리하여 최적 배치.
 
 원칙:
@@ -44,7 +44,8 @@ Soft Constraints:
 from datetime import date, timedelta
 from ortools.sat.python import cp_model
 from engine.models import (
-    Nurse, Request, Rules, Schedule, ROLE_TIERS, get_sleep_partner_month
+    Nurse, Request, Rules, Schedule, ROLE_TIERS, get_sleep_partner_month,
+    WORK_SHIFTS,
 )
 from datetime import datetime
 def _log(message):
@@ -80,8 +81,9 @@ _보수 = 13
 _POFF = 14
 _필수 = 15
 _번표 = 16
+_병가 = 17
 
-NUM_TYPES = 17
+NUM_TYPES = 18
 
 # 인덱스 ↔ 이름
 IDX_TO_NAME = {
@@ -90,14 +92,14 @@ IDX_TO_NAME = {
     # _D9: "D9", _D1: "D1", _중1: "중1",
     _E: "E", _N: "N",
     _주: "주", _OFF: "OFF", _법휴: "법휴", _수면: "수면",
-    _생휴: "생휴", _휴가: "휴가", _특휴: "특휴", _공가: "공가", _경가: "경가",
+    _생휴: "생휴", _휴가: "휴가", _병가: "병가", _특휴: "특휴", _공가: "공가", _경가: "경가",
     _보수: "보수", _POFF: "POFF", _필수: "필수", _번표: "번표",
 }
 NAME_TO_IDX = {v: k for k, v in IDX_TO_NAME.items()}
 
 # 휴무 그룹
 REGULAR_OFF = [_주, _OFF]                                               # 주당 정규 휴무 (주1 + OFF1 = 2)
-EXTRA_OFF = [_법휴, _수면, _생휴, _휴가, _특휴, _공가, _경가, _보수, _POFF, _필수, _번표]  # 추가 휴무 (주당 예산 외)
+EXTRA_OFF = [_법휴, _수면, _생휴, _휴가, _병가, _특휴, _공가, _경가, _보수, _POFF, _필수, _번표]  # 추가 휴무 (주당 예산 외)
 ALL_OFF = REGULAR_OFF + EXTRA_OFF                                       # 연속근무 중단 인정 대상
 
 # 근무 패밀리 (인원 집계용)
@@ -253,6 +255,16 @@ def validate_requests(
                         f" {shift} 제외 동시 신청"
                     )
 
+        # 7. 고정 주휴 요일에 근무 요청
+        if nurse.fixed_weekly_off is not None:
+            for r in reqs:
+                wd = weekday_of(r.day - 1)
+                if wd == nurse.fixed_weekly_off and r.code in WORK_SHIFTS:
+                    warnings.append(
+                        f"{nurse.name}: {r.day}일({wd_names[wd]})은 고정 주휴일인데"
+                        f" {r.code} 근무 요청"
+                    )
+
     return warnings
 
 
@@ -363,7 +375,7 @@ def solve_schedule(
         # tail[-2:]가 [N, OFF계열]이면 day0에 D 금지
         if tail_len >= 2:
             t2, t1 = tail[-2], tail[-1]
-            if t2 == "N" and t1 in ("OFF", "주", "법휴", "수면", "생휴", "휴가", "특휴", "공가", "경가", "보수", "POFF"):
+            if t2 == "N" and t1 in ("OFF", "주", "법휴", "수면", "생휴", "휴가", "병가", "특휴", "공가", "경가", "보수", "POFF", "필수", "번표"):
                 for si in D_FAMILY:
                     model.add(shifts[(ni, 0, si)] == 0)
         # tail[-1]이 N이면 day0 OFF + day1 D 금지
@@ -377,7 +389,7 @@ def solve_schedule(
         # tail[-2:]가 [N, OFF계열]이면 day0에 N 금지
         if tail_len >= 2:
             t2, t1 = tail[-2], tail[-1]
-            if t2 == "N" and t1 in ("OFF", "주", "법휴", "수면", "생휴", "휴가", "특휴", "공가", "경가", "보수", "POFF"):
+            if t2 == "N" and t1 in ("OFF", "주", "법휴", "수면", "생휴", "휴가", "병가", "특휴", "공가", "경가", "보수", "POFF", "필수", "번표"):
                 model.add(shifts[(ni, 0, _N)] == 0)
         # tail[-1]이 N이면 day0 OFF + day1 N 금지
         if tail_len >= 1 and tail[-1] == "N" and num_days >= 2:
@@ -587,7 +599,12 @@ def solve_schedule(
                 model.add(shifts[(ni, di, _주)] == 0)
 
     # ── H10b. 법휴는 공휴일에만 배치 가능 ──
-    public_holiday_dis = set(h - 1 for h in rules.public_holidays if 1 <= h <= num_days)
+    # public_holidays는 달력 날짜(일)이므로 스케줄 내 해당 날짜 찾기
+    _holiday_days = set(rules.public_holidays)
+    public_holiday_dis = {
+        di for di in range(num_days)
+        if (start_date + timedelta(days=di)).day in _holiday_days
+    }
     for ni in range(num_nurses):
         for di in range(num_days):
             if di not in public_holiday_dis:
@@ -679,7 +696,7 @@ def solve_schedule(
     for ni, nurse in enumerate(nurses):
         # 각 특수 off 타입별 하드 요청 갯수 계산
         hard_counts = {}
-        for code, idx in [("생휴", _생휴), ("수면", _수면), ("휴가", _휴가),
+        for code, idx in [("생휴", _생휴), ("수면", _수면), ("휴가", _휴가), ("병가", _병가),
                           ("특휴", _특휴), ("공가", _공가), ("경가", _경가),
                           ("보수", _보수), ("필수", _필수), ("번표", _번표)]:
             hard_counts[idx] = sum(
@@ -746,8 +763,8 @@ def solve_schedule(
                             >= eff_threshold
                         ).only_enforce_if(shifts[(ni, di, _수면)])
 
-        # 특휴, 공가, 경가, 보수, 필수, 번표: == hard_request_count (요청 시만)
-        for idx in [_특휴, _공가, _경가, _보수, _필수, _번표]:
+        # 특휴, 공가, 경가, 보수, 필수, 번표, 병가: == hard_request_count (요청 시만)
+        for idx in [_특휴, _공가, _경가, _보수, _필수, _번표, _병가]:
             model.add(
                 sum(shifts[(ni, di, idx)] for di in range(num_days))
                 == hard_counts[idx]

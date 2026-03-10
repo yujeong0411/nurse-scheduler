@@ -1,5 +1,5 @@
 """메인 윈도우 - 탭 컨테이너"""
-from PyQt6.QtWidgets import QMainWindow, QTabWidget, QDockWidget, QPushButton
+from PyQt6.QtWidgets import QMainWindow, QTabWidget, QDockWidget, QPushButton, QLabel, QHBoxLayout, QWidget
 from PyQt6.QtGui import QIcon
 from PyQt6.QtCore import QSize, Qt
 import sys
@@ -64,7 +64,7 @@ class MainWindow(QMainWindow):
 
         # ── 가이드 사이드 패널 ──
         self.guide = GuidePanel()
-        self._dock = QDockWidget("가이드", self)
+        self._dock = QDockWidget(self)
         self._dock.setObjectName("guideDock")
         self._dock.setWidget(self.guide)
         self._dock.setAllowedAreas(
@@ -75,6 +75,16 @@ class MainWindow(QMainWindow):
             QDockWidget.DockWidgetFeature.DockWidgetClosable
             | QDockWidget.DockWidgetFeature.DockWidgetMovable
         )
+        # 커스텀 타이틀바 (흰색 텍스트 보장)
+        _title_bar = QWidget()
+        _title_bar.setStyleSheet("background-color: #013976;")
+        _title_layout = QHBoxLayout(_title_bar)
+        _title_layout.setContentsMargins(10, 4, 10, 4)
+        _title_label = QLabel("가이드")
+        _title_label.setStyleSheet("color: white; font-weight: 600; font-family: '맑은 고딕'; font-size: 10pt;")
+        _title_layout.addWidget(_title_label)
+        _title_layout.addStretch()
+        self._dock.setTitleBarWidget(_title_bar)
         self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self._dock)
         self._dock.setMinimumWidth(250)
 
@@ -82,10 +92,11 @@ class MainWindow(QMainWindow):
         self._guide_btn = QPushButton("ⓘ 가이드")
         self._guide_btn.setObjectName("guideToggleBtn")
         self._guide_btn.setCheckable(True)
-        self._guide_btn.setChecked(True)
+        self._guide_btn.setChecked(False)
         self._guide_btn.setFixedHeight(26)
         self._guide_btn.clicked.connect(self._toggle_guide)
         self._dock.visibilityChanged.connect(self._guide_btn.setChecked)
+        self._dock.hide()
         self.statusBar().addPermanentWidget(self._guide_btn)
 
         # 상태바

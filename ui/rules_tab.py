@@ -272,10 +272,10 @@ class RulesTab(QWidget):
             ed = sd + timedelta(days=27)
             hols = get_holidays_for_period(sd)
             if hols:
-                days_str = ", ".join(str(d) for d, _ in hols)
+                days_str = ", ".join(str(dt.day) for dt, _ in hols)
                 names = "\n".join(
-                    f"  {d}일차 ({(sd + timedelta(days=d-1)).strftime('%m/%d')}): {name}"
-                    for d, name in hols
+                    f"  {dt.strftime('%m/%d')} ({dt.day}일): {name}"
+                    for dt, name in hols
                 )
                 self.holidays_input.setText(days_str)
                 QMessageBox.information(

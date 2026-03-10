@@ -1,6 +1,6 @@
 """수동 수정 시 규칙 위반 검증 — 응급실 간호사 근무표 (D/E/N)
 
-검증 항목 (16개):
+검증 항목 (18개):
  1-2. 역순 금지 (전날→오늘, 오늘→다음날)
  3.   연속 근무 ≤5일
  4.   연속 N ≤3개
@@ -15,8 +15,11 @@
  13.  법정공휴일 휴무 = 법휴/주
  14.  주4일제 주당 OFF ≥3
  15.  임산부 연속 근무 ≤4
- 16.  휴가 잔여일 초과
+ 16.  N→1휴무→D 금지
+ 17.  휴가 잔여일 초과
+ 18.  고정 주휴 요일 위반
 """
+from datetime import timedelta
 from engine.models import (
     Nurse, Rules, Schedule,
     WORK_SHIFTS, OFF_TYPES, SHIFT_ORDER, ROLE_TIERS,
@@ -316,6 +319,16 @@ def validate_change(
         if used > nurse.vacation_days:
             violations.append(
                 f"휴가 {used}일 사용 (잔여 {nurse.vacation_days}일)"
+            )
+
+    # ── 18. 고정 주휴 요일 ──
+    if nurse.fixed_weekly_off is not None:
+        day_weekday = (schedule.start_date + timedelta(days=day - 1)).weekday()
+        if day_weekday == nurse.fixed_weekly_off and new_shift != "주":
+            weekday_names = ["월", "화", "수", "목", "금", "토", "일"]
+            violations.append(
+                f"{day}일은 고정 주휴일 ({weekday_names[nurse.fixed_weekly_off]}요일): "
+                f"'주' 필요 (현재: {new_shift})"
             )
 
     return violations
