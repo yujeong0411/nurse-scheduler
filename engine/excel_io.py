@@ -9,6 +9,7 @@
   - 통계 시트
 """
 import calendar
+import io
 import re
 from datetime import date, timedelta
 from openpyxl import Workbook, load_workbook
@@ -20,6 +21,35 @@ from engine.models import (
     Nurse, Request, Rules, Schedule,
     WORK_SHIFTS, OFF_TYPES, ALL_CODES,
 )
+
+
+class EncryptedFileError(Exception):
+    """파일이 암호화(비밀번호 보호)되어 있습니다."""
+
+
+def load_workbook_safe(filepath: str, password: str | None = None, **kw):
+    """암호화 여부를 감지하고, 필요하면 복호화 후 workbook 반환.
+
+    - 암호화 없음: 일반 load_workbook 호출
+    - 암호화 + password 있음: msoffcrypto로 복호화 후 BytesIO에서 열기
+    - 암호화 + password 없음: EncryptedFileError 발생
+    """
+    try:
+        import msoffcrypto
+    except ImportError:
+        return load_workbook(filepath, **kw)
+
+    with open(filepath, "rb") as f:
+        office_file = msoffcrypto.OfficeFile(f)
+        if not office_file.is_encrypted():
+            return load_workbook(filepath, **kw)
+        if password is None:
+            raise EncryptedFileError("파일이 암호화되어 있습니다. 비밀번호가 필요합니다.")
+        office_file.load_key(password=password)
+        buf = io.BytesIO()
+        office_file.decrypt(buf)
+    buf.seek(0)
+    return load_workbook(buf, **kw)
 
 
 # ══════════════════════════════════════════
@@ -310,7 +340,7 @@ def export_schedule(schedule: Schedule, rules: Rules, filepath: str):
 # 가져오기: 근무 규칙 엑셀 → 간호사 속성
 # ══════════════════════════════════════════
 
-def import_nurse_rules(filepath: str) -> list[Nurse]:
+def import_nurse_rules(filepath: str, password: str | None = None) -> list[Nurse]:
     """근무표_규칙.xlsx에서 간호사 목록 + 속성 불러오기
 
     형식:
@@ -320,7 +350,7 @@ def import_nurse_rules(filepath: str) -> list[Nurse]:
       F열: 비고3 (특수) — 임산부, 남자
       G열: 비고4 (근무형태) — 주4일제
     """
-    wb = load_workbook(filepath, read_only=True, data_only=True)
+    wb = load_workbook_safe(filepath, password, read_only=True, data_only=True)
     ws = wb.active
 
     # 헤더 행 찾기 ("이름" 포함 행)
@@ -536,6 +566,7 @@ def import_requests(
     filepath: str,
     nurses: list[Nurse],
     start_date: date,
+    password: str | None = None,
 ) -> tuple[list[Request], dict[int, int]]:
     """근무신청표 엑셀에서 요청사항 + 간호사 속성 읽기
 
@@ -562,7 +593,7 @@ def import_requests(
       D열: 수면 (값 있으면 전월 이월)
       E~AF열: 1일~28일 (코드 입력)
     """
-    wb = load_workbook(filepath, read_only=True, data_only=True)
+    wb = load_workbook_safe(filepath, password, read_only=True, data_only=True)
     ws = wb.active
 
     nurse_name_map = {n.name.strip(): n for n in nurses}
@@ -688,12 +719,12 @@ def import_requests(
     return requests, weekly_off_map
 
 
-def import_nurses_from_request(filepath: str) -> list[str]:
+def import_nurses_from_request(filepath: str, password: str | None = None) -> list[str]:
     """근무신청표에서 간호사 이름 목록만 추출
 
     Returns: 이름 리스트 (순서 유지)
     """
-    wb = load_workbook(filepath, read_only=True, data_only=True)
+    wb = load_workbook_safe(filepath, password, read_only=True, data_only=True)
     ws = wb.active
 
     result = _find_day_columns(ws)
@@ -729,6 +760,7 @@ def import_prev_schedule(
     filepath: str,
     nurse_names: list[str],
     tail_days: int = 5,
+    password: str | None = None,
 ) -> tuple[dict[str, list[str]], dict[str, int], dict[str, int], dict[str, int]]:
     """이전 달 근무표 엑셀에서 마지막 tail_days일의 근무 + 전체 N 횟수 + 수면 횟수 + 휴가잔여 추출
 
@@ -748,7 +780,7 @@ def import_prev_schedule(
         - sleep_counts: {이름: 전월 수면 사용 횟수}
         - vac_days: {이름: 휴가잔여 일수}
     """
-    wb = load_workbook(filepath, read_only=True, data_only=True)
+    wb = load_workbook_safe(filepath, password, read_only=True, data_only=True)
     ws = wb.active
 
     result = _find_day_columns(ws)
@@ -836,7 +868,7 @@ def import_prev_schedule(
 # 파일 날짜 탐지
 # ══════════════════════════════════════════
 
-def detect_file_month(filepath: str) -> tuple[int | None, int | None]:
+def detect_file_month(filepath: str, password: str | None = None) -> tuple[int | None, int | None]:
     """엑셀 파일에서 연도/월 정보를 탐지
 
     파일명 → 파일 내용 순으로 검색.
@@ -857,7 +889,7 @@ def detect_file_month(filepath: str) -> tuple[int | None, int | None]:
             return y, mo
 
     # ── 2단계: 파일 내용에서 탐지 ──
-    wb = load_workbook(filepath, read_only=True, data_only=True)
+    wb = load_workbook_safe(filepath, password, read_only=True, data_only=True)
     ws = wb.active
 
     # Pass 1: 고신뢰 — "YYYY년 M월" 또는 "YYYY.MM"

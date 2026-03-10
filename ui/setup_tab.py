@@ -5,7 +5,7 @@ from PyQt6.QtWidgets import (
     QComboBox, QTableWidget, QTableWidgetItem,
     QPushButton, QCheckBox, QHeaderView, QAbstractItemView,
     QMessageBox, QFileDialog, QLineEdit, QDateEdit, QDialog,
-    QDialogButtonBox
+    QDialogButtonBox, QInputDialog
 )
 from PyQt6.QtCore import Qt, pyqtSignal, QDate
 from PyQt6.QtGui import QFont, QIntValidator
@@ -373,6 +373,32 @@ class SetupTab(QWidget):
     # 엑셀 불러오기
     # ══════════════════════════════════════════
 
+    def _get_password_if_encrypted(self, filepath: str) -> str | None | bool:
+        """파일이 암호화된 경우 비밀번호 입력 다이얼로그 표시.
+
+        Returns:
+            None  — 암호화 없음 (그냥 진행)
+            str   — 입력된 비밀번호
+            False — 사용자가 취소
+        """
+        try:
+            import msoffcrypto
+            with open(filepath, "rb") as f:
+                of = msoffcrypto.OfficeFile(f)
+                if not of.is_encrypted():
+                    return None
+        except ImportError:
+            return None
+        except Exception:
+            return None
+
+        pwd, ok = QInputDialog.getText(
+            self, "비밀번호 입력", "엑셀 파일 비밀번호:", QLineEdit.EchoMode.Password
+        )
+        if not ok:
+            return False
+        return pwd
+
     def _import_rules_excel(self):
         """근무표_규칙.xlsx에서 간호사 속성 불러오기"""
         path, _ = QFileDialog.getOpenFileName(
@@ -382,7 +408,10 @@ class SetupTab(QWidget):
             return
         try:
             from engine.excel_io import import_nurse_rules
-            imported = import_nurse_rules(path)
+            password = self._get_password_if_encrypted(path)
+            if password is False:
+                return
+            imported = import_nurse_rules(path, password=password)
             if not imported:
                 QMessageBox.warning(self, "오류", "간호사 데이터를 찾을 수 없습니다.")
                 return
@@ -409,9 +438,13 @@ class SetupTab(QWidget):
         try:
             from engine.excel_io import import_requests, import_nurses_from_request, detect_file_month
 
+            password = self._get_password_if_encrypted(path)
+            if password is False:
+                return
+
             # 날짜 검증
             start_date = self.get_start_date()
-            file_year, file_month = detect_file_month(path)
+            file_year, file_month = detect_file_month(path, password=password)
 
             if file_month is not None:
                 # 날짜 탐지 성공 → 불일치 검사
@@ -440,7 +473,7 @@ class SetupTab(QWidget):
 
             # 간호사가 없으면 신청표에서 이름 추출
             if not self.nurses:
-                names = import_nurses_from_request(path)
+                names = import_nurses_from_request(path, password=password)
                 if names:
                     self.nurses = [
                         Nurse(id=i + 1, name=n) for i, n in enumerate(names)
@@ -452,7 +485,7 @@ class SetupTab(QWidget):
                 return
 
             start_date = self.get_start_date()
-            reqs, weekly_map = import_requests(path, self.nurses, start_date)
+            reqs, weekly_map = import_requests(path, self.nurses, start_date, password=password)
 
             # 고정 주휴 반영
             for nurse in self.nurses:
@@ -641,15 +674,19 @@ class PrevShiftDialog(QDialog):
             from engine.excel_io import import_prev_schedule, detect_file_month
             from engine.models import get_sleep_pair
 
+            password = self._get_password_if_encrypted(path)
+            if password is False:
+                return
+
             nurse_names = [n.name for n in self.nurses]
-            tail_result, n_counts, sleep_counts, vac_days = import_prev_schedule(path, nurse_names, TAIL_DAYS)
+            tail_result, n_counts, sleep_counts, vac_days = import_prev_schedule(path, nurse_names, TAIL_DAYS, password=password)
 
             if not tail_result:
                 QMessageBox.warning(self, "오류", "매칭되는 간호사가 없습니다.")
                 return
 
             # 수면이월 자동 판단을 위한 월 감지
-            _, prev_month = detect_file_month(path)
+            _, prev_month = detect_file_month(path, password=password)
             current_month = self.start_date.month
             sleep_auto_applied = False
             sleep_carry_count = 0
