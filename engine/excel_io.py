@@ -200,12 +200,53 @@ def export_schedule(schedule: Schedule, rules: Rules, filepath: str):
             shift = schedule.get_shift(nurse.id, d)
             cell = ws.cell(row, d + 1, shift)
             cell.alignment = CENTER
-            cell.border = THIN_BORDER
 
-            if shift in FILLS:
-                cell.fill = FILLS[shift]
-            elif schedule.weekday_index(d) >= 5:
-                cell.fill = WEEKEND_FILL
+            # 요청사항 매칭 체크
+            key = (nurse.id, d)
+            req_codes = req_map.get(key, [])
+            is_violation = False
+            is_matched = False
+            req_display = ""
+
+            if req_codes:
+                is_or = is_or_map.get(key, False)
+                req_display = "/".join(req_codes) if is_or else req_codes[0]
+
+                if any("제외" in c for c in req_codes):
+                    for c in req_codes:
+                        if "제외" in c:
+                            banned = c.split()[0]
+                            if shift == banned:
+                                is_violation = True
+                                break
+                    if not is_violation:
+                        is_matched = True
+                else:
+                    for c in req_codes:
+                        if c in _off_set and shift in _off_set:
+                            is_matched = True
+                            break
+                        if c == shift:
+                            is_matched = True
+                            break
+                    if not is_matched:
+                        is_violation = True
+
+            # 배경/테두리: 매칭 → 노란색, 불일치 → 흰색+빨간테두리, 없음 → 흰색(주말 연회색)
+            if is_matched:
+                cell.fill = PatternFill(start_color="FFFF66", fill_type="solid")
+                cell.border = THIN_BORDER
+            elif is_violation:
+                cell.fill = PatternFill(start_color="FFFFFF", fill_type="solid")
+                cell.border = RED_BORDER
+                cell.comment = Comment(f"요청: {req_display}", "시스템")
+            else:
+                if schedule.weekday_index(d) >= 5:
+                    cell.fill = WEEKEND_FILL
+                else:
+                    cell.fill = PatternFill(start_color="FFFFFF", fill_type="solid")
+                cell.border = THIN_BORDER
+
             if shift in FONTS:
                 cell.font = FONTS[shift]
 

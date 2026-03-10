@@ -198,7 +198,7 @@ class Request:
         """반드시 지켜야 하는 확정 요청인가?"""
         if self.is_or:
             return False  # OR 요청은 항상 soft
-        return self.code in ("주", "법휴", "휴가", "병가", "특휴", "생휴", "수면", "공가", "경가", "보수", "필수", "번표")   # "OFF"는 소프트(S1)로 처리 — H11이 주당 2개 보장
+        return self.code in ("주", "OFF", "법휴", "휴가", "병가", "특휴", "생휴", "수면", "공가", "경가", "보수", "필수", "번표")
 
     @property
     def is_exclude(self) -> bool:

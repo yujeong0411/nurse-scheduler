@@ -6,7 +6,7 @@ from PyQt6.QtWidgets import (
     QMessageBox
 )
 from PyQt6.QtCore import Qt
-from PyQt6.QtGui import QFont
+from PyQt6.QtGui import QFont, QColor, QBrush
 from engine.models import Nurse, Request, DataManager
 from ui.styles import (
     REQUEST_CODES, SHIFT_COLORS,
@@ -21,6 +21,7 @@ class RequestTab(QWidget):
         self.start_date = date(2026, 3, 1)
         self.requests: list[Request] = []
         self._building = False
+        self._highlighted_row = -1
         self._init_ui()
 
     def _init_ui(self):
@@ -59,6 +60,7 @@ class RequestTab(QWidget):
         self.name_table.verticalHeader().setVisible(False)
         self.name_table.setSelectionMode(
             QTableWidget.SelectionMode.NoSelection)
+        self.name_table.cellClicked.connect(self._on_name_clicked)
         self.name_table.setAlternatingRowColors(False)
         table_area.addWidget(self.name_table)
 
@@ -173,16 +175,20 @@ class RequestTab(QWidget):
         self._week_delegate = WeekSeparatorDelegate(sunday_cols, self.table)
         self.table.setItemDelegate(self._week_delegate)
 
+        self._highlighted_row = -1
         self._building = False
 
     def _apply_combo_style(self, combo, code, weekday):
         """콤보박스에 코드에 맞는 색상 적용"""
         base = "font-size: 9pt; border: none; "
-        if code and code in SHIFT_COLORS:
-            c = SHIFT_COLORS[code]
-            combo.setStyleSheet(
-                base + f"background-color: rgb({c.red()},{c.green()},{c.blue()});"
-            )
+        if code:
+            # 요청이 있으면 종류에 관계없이 노란색 (휴무/근무/제외 모두)
+            if code in SHIFT_COLORS:
+                c = SHIFT_COLORS[code]
+                bg = f"rgb({c.red()},{c.green()},{c.blue()})"
+            else:
+                bg = "rgb(252, 251, 146)"  # 근무 요청·제외 요청 등
+            combo.setStyleSheet(base + f"background-color: {bg};")
         elif weekday >= 5:
             combo.setStyleSheet(base + "background-color: #f2f2f2;")
         else:
@@ -198,6 +204,11 @@ class RequestTab(QWidget):
         if combo:
             wd = (self.start_date + timedelta(days=day - 1)).weekday()
             self._apply_combo_style(combo, code, wd)
+            # 해당 행이 하이라이트 중이면 다시 적용
+            if row == self._highlighted_row:
+                combo.setStyleSheet(
+                    "font-size: 9pt; border: none; background-color: #DAEEFF;"
+                )
 
         # 요청 리스트 업데이트 (기존 해당 날짜 요청 제거)
         self.requests = [
@@ -215,6 +226,43 @@ class RequestTab(QWidget):
                         )
             else:
                 self.requests.append(Request(nurse_id=nurse.id, day=day, code=code))
+
+    _ROW_HIGHLIGHT = "#DAEEFF"  # 연한 하늘색
+
+    def _on_name_clicked(self, row, col):
+        """이름 셀 클릭 시 해당 행 하이라이트 토글"""
+        if self._highlighted_row == row:
+            self._apply_row_highlight(row, False)
+            self._highlighted_row = -1
+        else:
+            if self._highlighted_row >= 0:
+                self._apply_row_highlight(self._highlighted_row, False)
+            self._highlighted_row = row
+            self._apply_row_highlight(row, True)
+
+    def _apply_row_highlight(self, row: int, on: bool):
+        """행 전체에 하이라이트 적용/해제"""
+        # 이름 셀
+        name_item = self.name_table.item(row, 0)
+        if name_item:
+            name_item.setBackground(
+                QBrush(QColor(self._ROW_HIGHLIGHT)) if on else QBrush(QColor("#FFFFFF"))
+            )
+        # 날짜 콤보박스들
+        num_days = self.table.columnCount()
+        for col in range(num_days):
+            combo = self.table.cellWidget(row, col)
+            if combo is None:
+                continue
+            if on:
+                combo.setStyleSheet(
+                    f"font-size: 9pt; border: none; background-color: {self._ROW_HIGHLIGHT};"
+                )
+            else:
+                wd = (self.start_date + timedelta(days=col)).weekday()
+                # 해당 콤보의 현재 코드를 읽어 원래 색상 복원
+                code = combo.currentText()
+                self._apply_combo_style(combo, code, wd)
 
     def _save_requests(self):
         self.dm.save_requests(self.requests, self.start_date)
