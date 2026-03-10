@@ -74,11 +74,22 @@ class RequestTab(QWidget):
 
         layout.addLayout(table_area)
 
-        # 수직 스크롤 동기화
-        self.table.verticalScrollBar().valueChanged.connect(
-            self.name_table.verticalScrollBar().setValue)
-        self.name_table.verticalScrollBar().valueChanged.connect(
-            self.table.verticalScrollBar().setValue)
+        # 수직 스크롤 동기화 (순환 방지 플래그)
+        self._scroll_syncing = False
+        self.table.verticalScrollBar().valueChanged.connect(self._sync_name_scroll)
+        self.name_table.verticalScrollBar().valueChanged.connect(self._sync_table_scroll)
+
+    def _sync_name_scroll(self, value):
+        if not self._scroll_syncing:
+            self._scroll_syncing = True
+            self.name_table.verticalScrollBar().setValue(value)
+            self._scroll_syncing = False
+
+    def _sync_table_scroll(self, value):
+        if not self._scroll_syncing:
+            self._scroll_syncing = True
+            self.table.verticalScrollBar().setValue(value)
+            self._scroll_syncing = False
 
     def refresh(self, nurses: list[Nurse], start_date: date):
         self.nurses = nurses
