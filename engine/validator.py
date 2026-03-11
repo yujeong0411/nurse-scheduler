@@ -16,6 +16,7 @@
  14.  주4일제 주당 OFF ≥3
  15.  임산부 연속 근무 ≤4
  16.  N→1휴무→D 금지
+ 16b. N 다음날 보수/필수/번표 금지
  17.  휴가 잔여일 초과
  18.  고정 주휴 요일 위반
 """
@@ -309,6 +310,23 @@ def validate_change(
                 violations.append(
                     f"N→1휴무→D 금지: {day-1}일 N → {day}일 {new_shift} → {day+1}일 D"
                 )
+
+    # ── 16b. N 다음날 보수/필수/번표 금지 ──
+    _N_INVALID_NEXT = {"보수", "필수", "번표"}
+    # 오늘이 보수/필수/번표로 변경: 전날이 N이면 위반
+    if new_shift in _N_INVALID_NEXT and day >= 2:
+        prev = schedule.get_shift(nid, day - 1)
+        if prev == "N":
+            violations.append(
+                f"N 후 {new_shift} 금지: {day-1}일 N → {day}일 {new_shift}"
+            )
+    # 오늘이 N으로 변경: 다음날이 보수/필수/번표이면 위반
+    if new_shift == "N" and day < num_days:
+        nxt = schedule.get_shift(nid, day + 1)
+        if nxt in _N_INVALID_NEXT:
+            violations.append(
+                f"N 후 {nxt} 금지: {day}일 N → {day+1}일 {nxt}"
+            )
 
     # ── 17. 휴가 잔여일 ──
     if new_shift == "휴가":

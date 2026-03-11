@@ -14,6 +14,7 @@ Hard Constraints:
  H2.  일일 인원 (D/E/N == 고정)
  H3.  역순 금지 (D→E→N)
  H3a. N→1off→D 금지 (N 후 D까지 최소 2일 휴무)
+ H3c. N 다음날 보수/필수/번표 금지 (실질 근무 준하는 휴무)
  H4.  최대 연속 근무 (5일)
  H5.  최대 연속 N (3개)
  H6.  N 2연속 후 휴무 2개
@@ -439,6 +440,11 @@ def solve_schedule(
                 + shifts[(ni, 1, _N)] <= 1
             )
 
+        # ── 경계 H3c: N 다음날 보수/필수/번표 금지 ──
+        if tail_len >= 1 and tail[-1] == "N":
+            for si in (_보수, _필수, _번표):
+                model.add(shifts[(ni, 0, si)] == 0)
+
         # ── 경계 H4: 연속 근무 ≤ max_consecutive_work ──
         # tail 끝에서 연속 근무일수 세기
         _work_set = {"D", "E", "N", "중2"}
@@ -528,6 +534,15 @@ def solve_schedule(
                 <= 2
             )
 
+
+    # ── H3c. N 다음날 보수/필수/번표 금지 ──
+    # 보수(교육), 필수, 번표는 실질 근무에 준하므로 N 직후 배치 불가
+    for ni in range(num_nurses):
+        for di in range(num_days - 1):
+            for si in (_보수, _필수, _번표):
+                model.add(
+                    shifts[(ni, di, _N)] + shifts[(ni, di + 1, si)] <= 1
+                )
 
     # ── H4. 최대 연속 근무 (5일) ──
     # ALL_OFF 모두 비근무로 인정
