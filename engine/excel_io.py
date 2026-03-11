@@ -58,13 +58,10 @@ def load_workbook_safe(filepath: str, password: str | None = None, **kw):
 
 # 근무별 색상
 FILLS = {
-    # "D":   PatternFill(start_color="DAF0F3", fill_type="solid"),
-    # "D9":  PatternFill(start_color="B4E1E8", fill_type="solid"),  # 중간 계열
-    # "D1":  PatternFill(start_color="B4E1E8", fill_type="solid"),  # 중간 계열
-    # "중1":  PatternFill(start_color="FDEBD0", fill_type="solid"), # 중간 계열
-    # "중2":  PatternFill(start_color="FDEBD0", fill_type="solid"), # 중간 계열
-    # "E":   PatternFill(start_color="FDE9D9", fill_type="solid"),
-    # "N":   PatternFill(start_color="E4DFEC", fill_type="solid"),
+    "D9":  PatternFill(start_color="B4E1E8", fill_type="solid"),
+    "D1":  PatternFill(start_color="B4E1E8", fill_type="solid"),
+    "중1":  PatternFill(start_color="FDEBD0", fill_type="solid"),
+    "중2":  PatternFill(start_color="FDEBD0", fill_type="solid"),
     "OFF": PatternFill(start_color="fcfb92", fill_type="solid"),
     "주":   PatternFill(start_color="fcfb92", fill_type="solid"),
     "법휴": PatternFill(start_color="fcfb92", fill_type="solid"),
@@ -82,9 +79,9 @@ FILLS = {
 }
 FONTS = {
     "D":   Font(size=10),
-    # "D9":  Font(color="2E75B6", bold=True, size=9),  # 중간 계열
-    # "D1":  Font(color="2E75B6", bold=True, size=9),  # 중간 계열
-    # "중1":  Font(color="BF8F00", bold=True, size=9),  # 중간 계열
+    "D9":  Font(color="2E75B6", bold=True, size=9),
+    "D1":  Font(color="2E75B6", bold=True, size=9),
+    "중1":  Font(color="BF8F00", bold=True, size=9),
     "중2":  Font(size=10),
     "E":   Font(size=10),
     "N":   Font(color="d61506", size=10),

@@ -15,7 +15,7 @@
  13.  법정공휴일 휴무 = 법휴/주
  14.  주4일제 주당 OFF ≥3
  15.  임산부 연속 근무 ≤4
- 16.  N→1휴무→D 금지
+ 16.  N→1휴무→(D/D9/D1/중1/중2) 금지 — 1휴무 후 E·N만 허용
  16b. N 다음날 보수/필수/번표 금지
  17.  휴가 잔여일 초과
  18.  고정 주휴 요일 위반
@@ -284,31 +284,33 @@ def validate_change(
                 f"(최대 {rules.pregnant_poff_interval}일)"
             )
 
-    # ── 16. N→1off→D 금지 (N 후 D까지 최소 2일 휴무) ──
-    # D로 변경 시: 2일 전이 N이고 사이가 휴무면 위반
-    if new_shift == "D" and day >= 3:
+    # ── 16. N→1off→(D/중간근무) 금지 ──
+    # N 후 1휴무 뒤에는 E·N만 허용
+    _MID_AND_D = {"D", "D9", "D1", "중1", "중2"}
+    # D/중간으로 변경 시: 2일 전이 N이고 사이가 휴무면 위반
+    if new_shift in _MID_AND_D and day >= 3:
         prev2 = schedule.get_shift(nid, day - 2)
         prev1 = schedule.get_shift(nid, day - 1)
         if prev2 == "N" and prev1 not in WORK_SHIFTS:
             violations.append(
-                f"N→1휴무→D 금지: {day-2}일 N → {day-1}일 {prev1} → {day}일 D"
+                f"N→1휴무→{new_shift} 금지: {day-2}일 N → {day-1}일 {prev1} → {day}일 {new_shift}"
             )
-    # N으로 변경 시: 2일 후가 D이고 사이가 휴무면 위반
+    # N으로 변경 시: 2일 후가 D/중간이고 사이가 휴무면 위반
     if new_shift == "N" and day + 2 <= num_days:
         next1 = schedule.get_shift(nid, day + 1)
         next2 = schedule.get_shift(nid, day + 2)
-        if next2 == "D" and next1 not in WORK_SHIFTS:
+        if next2 in _MID_AND_D and next1 not in WORK_SHIFTS:
             violations.append(
-                f"N→1휴무→D 금지: {day}일 N → {day+1}일 {next1} → {day+2}일 D"
+                f"N→1휴무→{next2} 금지: {day}일 N → {day+1}일 {next1} → {day+2}일 {next2}"
             )
-    # 근무→OFF 변경 시: 양쪽이 N, D이면 위반
+    # 근무→OFF 변경 시: 양쪽이 N, D/중간이면 위반
     if is_off and old_shift in WORK_SHIFTS:
         if day >= 2 and day < num_days:
             prev = schedule.get_shift(nid, day - 1)
             nxt = schedule.get_shift(nid, day + 1)
-            if prev == "N" and nxt == "D":
+            if prev == "N" and nxt in _MID_AND_D:
                 violations.append(
-                    f"N→1휴무→D 금지: {day-1}일 N → {day}일 {new_shift} → {day+1}일 D"
+                    f"N→1휴무→{nxt} 금지: {day-1}일 N → {day}일 {new_shift} → {day+1}일 {nxt}"
                 )
 
     # ── 16b. N 다음날 보수/필수/번표 금지 ──

@@ -60,7 +60,8 @@ _TAB0_SETUP = _wrap("""
 </table>
 
 <div class="tip">
-<b>팁:</b> 전월N과 수면이월은 직접 입력보다 <b>이전 근무 불러오기</b>를 사용하면 정확합니다.
+<b>팁:</b> 전월N과 수면이월은 직접 입력보다 <b>이전 근무 불러오기</b>를 사용하면 정확합니다.<br>
+불러온 후에도 값이 올바른지 한 번 더 확인하는 것을 권장합니다.
 </div>
 """)
 
@@ -77,7 +78,10 @@ _TAB1_REQUEST = _wrap("""
 <tr><td><span class="chip chip-work">D</span></td><td>주간 근무 (Day)</td></tr>
 <tr><td><span class="chip chip-work">E</span></td><td>저녁 근무 (Evening)</td></tr>
 <tr><td><span class="chip chip-work">N</span></td><td>야간 근무 (Night)</td></tr>
-<tr><td><span class="chip chip-work">중2</span></td><td>중간 근무 (평일만, 역할 "중2"만 가능)</td></tr>
+<tr><td><span class="chip chip-work">중2</span></td><td>중간 근무 (평일만, 역할 "중2"만 가능, 솔버 자동배정)</td></tr>
+<tr><td><span class="chip chip-work">D9</span></td><td>중간 근무 변형 (입력 전용 — 요청 시만 배정)</td></tr>
+<tr><td><span class="chip chip-work">D1</span></td><td>중간 근무 변형 (입력 전용 — 요청 시만 배정)</td></tr>
+<tr><td><span class="chip chip-work">중1</span></td><td>중간 근무 변형 (입력 전용 — 요청 시만 배정)</td></tr>
 </table>
 
 <h3>휴무 코드</h3>
@@ -113,8 +117,9 @@ _TAB1_REQUEST = _wrap("""
 <div class="warn">
 <b>주의:</b><br>
 • 생휴는 여성만, 월 1회까지<br>
-• '주'는 고정주휴 요일에만 유효<br>
-• OFF는 주당 1개(4일근무 2개) 초과 시 무시됨<br>
+• '주'는 고정주휴 요일 외 입력 차단<br>
+• OFF는 주당 1개(4일근무 2개) 초과 시 입력 차단<br>
+• D9·D1·중1은 요청 시에만 배정 (솔버 자동배정 없음)<br>
 • 빈칸 = 솔버가 자동 배정
 </div>
 """)

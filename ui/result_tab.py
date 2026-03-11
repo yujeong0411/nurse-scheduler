@@ -277,7 +277,7 @@ class ResultTab(QWidget):
                 item.setFont(QFont(FONT_FAMILY, 8))
                 self.table.setItem(row, 1 + ci, item)
 
-            d_cnt, 중2_cnt, e_cnt, n_cnt, off_cnt = 0, 0, 0, 0, 0
+            d_cnt, 중2_cnt, e_cnt, n_cnt, off_cnt, mid_cnt = 0, 0, 0, 0, 0, 0
             menst_cnt, sleep_cnt = 0, 0
 
             for d in range(1, num_days + 1):
@@ -345,6 +345,8 @@ class ResultTab(QWidget):
                     d_cnt += 1
                 elif shift == "중2":
                     중2_cnt += 1
+                elif shift in ("D9", "D1", "중1"):
+                    mid_cnt += 1
                 elif shift == "E":
                     e_cnt += 1
                 elif shift == "N":
@@ -373,7 +375,7 @@ class ResultTab(QWidget):
             sleep_item = self.table.item(row, 2)
             sleep_item.setText(str(sleep_remain) if sleep_remain > 0 else "")
 
-            total_work = d_cnt + 중2_cnt + e_cnt + n_cnt
+            total_work = d_cnt + 중2_cnt + mid_cnt + e_cnt + n_cnt
             stat_vals = [d_cnt, 중2_cnt, e_cnt, n_cnt, off_cnt, total_work]
             stat_start = DAY_START + num_days
             for i, val in enumerate(stat_vals):
