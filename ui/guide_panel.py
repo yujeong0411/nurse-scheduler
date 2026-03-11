@@ -43,13 +43,13 @@ _TAB0_SETUP = _wrap("""
 <tr><td><b>이름</b></td><td>간호사 이름 (필수)</td></tr>
 <tr><td><b>비고1 (역할)</b></td><td>책임만, 외상, 혼자 관찰, 혼자관찰불가, 급성구역, 준급성, 격리구역, 중2 등</td></tr>
 <tr><td><b>비고2 (직급)</b></td><td>책임, 서브차지 — D/E/N 시간대별 최소 인원 체크에 사용</td></tr>
-<tr><td><b>임산부</b></td><td>체크 시 N 근무 금지, 연속 근무 제한 적용</td></tr>
+<tr><td><b>임산부</b></td><td>체크 시 연속 근무 4일 초과 제한 + 4근무마다 POFF 1일 자동 배정</td></tr>
 <tr><td><b>남자</b></td><td>체크 시 생휴 배정 제외</td></tr>
 <tr><td><b>주4일제</b></td><td>체크 시 주 4일 근무 적용</td></tr>
 <tr><td><b>고정주휴</b></td><td>매주 특정 요일에 고정 휴무 배정</td></tr>
 <tr><td><b>휴가잔여</b></td><td>이번 달 사용 가능한 잔여 휴가 일수</td></tr>
 <tr><td><b>전월N</b></td><td>지난 달 N 근무 횟수 (수면 발생 계산에 사용)</td></tr>
-<tr><td><b>수면이월</b></td><td>지난 달 미사용 수면 일수 (이월분)</td></tr>
+<tr><td><b>수면이월</b></td><td>전월 미사용 수면 이월 여부 (체크 = 1일 이월)</td></tr>
 </table>
 
 <h3>엑셀 불러오기</h3>
@@ -60,7 +60,8 @@ _TAB0_SETUP = _wrap("""
 </table>
 
 <div class="tip">
-<b>팁:</b> 전월N과 수면이월은 직접 입력보다 <b>이전 근무 불러오기</b>를 사용하면 정확합니다.
+<b>팁:</b> 전월N과 수면이월은 직접 입력보다 <b>이전 근무 불러오기</b>를 사용하면 정확합니다.<br>
+불러온 후에도 값이 올바른지 한 번 더 확인하는 것을 권장합니다.
 </div>
 """)
 
@@ -77,12 +78,15 @@ _TAB1_REQUEST = _wrap("""
 <tr><td><span class="chip chip-work">D</span></td><td>주간 근무 (Day)</td></tr>
 <tr><td><span class="chip chip-work">E</span></td><td>저녁 근무 (Evening)</td></tr>
 <tr><td><span class="chip chip-work">N</span></td><td>야간 근무 (Night)</td></tr>
-<tr><td><span class="chip chip-work">중2</span></td><td>중간 근무 (평일만, 역할 "중2"만 가능)</td></tr>
+<tr><td><span class="chip chip-work">중2</span></td><td>중간 근무 (평일만, 역할 "중2"만 가능, 솔버 자동배정)</td></tr>
+<tr><td><span class="chip chip-work">D9</span></td><td>중간 근무 변형 (입력 전용 — 요청 시만 배정)</td></tr>
+<tr><td><span class="chip chip-work">D1</span></td><td>중간 근무 변형 (입력 전용 — 요청 시만 배정)</td></tr>
+<tr><td><span class="chip chip-work">중1</span></td><td>중간 근무 변형 (입력 전용 — 요청 시만 배정)</td></tr>
 </table>
 
 <h3>휴무 코드</h3>
 <table>
-<tr><td><span class="chip chip-off">OFF</span></td><td>일반 휴무</td></tr>
+<tr><td><span class="chip chip-off">OFF</span></td><td>일반 휴무 (주당 1개, 4일근무 주당 2개)</td></tr>
 <tr><td><span class="chip chip-off">주</span></td><td>주휴 (고정주휴 요일에 자동 배정)</td></tr>
 <tr><td><span class="chip chip-off">법휴</span></td><td>법정 공휴일 휴무</td></tr>
 <tr><td><span class="chip chip-off">생휴</span></td><td>생리 휴가 (여성만, 월 1회)</td></tr>
@@ -93,8 +97,8 @@ _TAB1_REQUEST = _wrap("""
 <tr><td><span class="chip chip-off">공가</span></td><td>공가</td></tr>
 <tr><td><span class="chip chip-off">경가</span></td><td>경조 휴가</td></tr>
 <tr><td><span class="chip chip-off">보수</span></td><td>보수 교육</td></tr>
-<tr><td><span class="chip chip-off">필수</span></td></tr>
-<tr><td><span class="chip chip-off">번표</span></td></tr>
+<tr><td><span class="chip chip-off">필수</span></td><td>필수 휴무</td></tr>
+<tr><td><span class="chip chip-off">번표</span></td><td>번표 휴무</td></tr>
 </table>
 
 <h3>제외 코드</h3>
@@ -113,7 +117,9 @@ _TAB1_REQUEST = _wrap("""
 <div class="warn">
 <b>주의:</b><br>
 • 생휴는 여성만, 월 1회까지<br>
-• '주'는 고정주휴 요일에만 유효<br>
+• '주'는 고정주휴 요일 외 입력 차단<br>
+• OFF는 주당 1개(4일근무 2개) 초과 시 입력 차단<br>
+• D9·D1·중1은 요청 시에만 배정 (솔버 자동배정 없음)<br>
 • 빈칸 = 솔버가 자동 배정
 </div>
 """)
@@ -135,14 +141,14 @@ _TAB2_RULES = _wrap("""
 <h3>직급 요건</h3>
 <ul>
 <li><b>책임 최소</b> — D/E/N 시간대에 '책임' 직급 최소 인원</li>
-<li><b>서브차지 최소</b> — D/E/N 시간대에 '서브차지' 직급 최소 인원</li>
+<li><b>서브차지 최소</b> — D/E/N 시간대에 책임+서브차지 합계 최소 인원</li>
 </ul>
 
 <h3>연속 근무 제한</h3>
 <ul>
 <li><b>최대 연속 근무</b> — N일 초과 연속 근무 금지 (기본 5)</li>
 <li><b>최대 연속 야간</b> — N일 초과 연속 N 근무 금지 (기본 3)</li>
-<li><b>월 최대 야간</b> — 한 달 N 근무 상한 (기본 8)</li>
+<li><b>월 최대 야간</b> — 한 달 N 근무 상한 (기본 6)</li>
 </ul>
 
 <h3>근무 순서 규칙</h3>
@@ -164,9 +170,8 @@ _TAB2_RULES = _wrap("""
 
 <h3>임산부 규칙</h3>
 <ul>
-<li>N 근무 완전 금지</li>
-<li>연속 근무 제한 강화</li>
-<li>생휴 배정 제외</li>
+<li>연속 근무 4일 초과 금지</li>
+<li>4근무마다 POFF 1일 자동 배정</li>
 </ul>
 
 <h3>주간 OFF / 법정 공휴일</h3>
@@ -187,8 +192,16 @@ _TAB3_RESULT = _wrap("""
 <h3>색상 범례</h3>
 <table>
 <tr>
-  <td style="background:#fcfb92; padding:3px 10px; border:1px solid #e0df60; text-align:center;">OFF</td>
-  <td>노란 배경 = 휴무 계열</td>
+  <td style="background:#ffff66; padding:3px 10px; border:1px solid #cccc00; text-align:center;">셀</td>
+  <td>노란 배경 = 요청 반영됨</td>
+</tr>
+<tr>
+  <td style="background:#ffffff; border:2px solid red; padding:3px 10px; text-align:center;">셀</td>
+  <td>흰 배경 + 빨간 테두리 = 요청 미반영 (툴팁으로 원래 요청 표시)</td>
+</tr>
+<tr>
+  <td style="background:#ffffff; padding:3px 10px; border:1px solid #ddd; text-align:center;">셀</td>
+  <td>흰 배경 = 요청 없음 (자동 배정)</td>
 </tr>
 <tr>
   <td style="color:#d61506; font-weight:bold; padding:3px 10px; text-align:center;">N</td>
@@ -199,24 +212,24 @@ _TAB3_RESULT = _wrap("""
   <td>회색 배경 = 주말</td>
 </tr>
 <tr>
-  <td style="border:2px solid red; padding:3px 10px; text-align:center;">셀</td>
-  <td>빨간 테두리 = 요청 미반영</td>
+  <td style="background:#DAEEFF; padding:3px 10px; border:1px solid #aaccee; text-align:center;">행</td>
+  <td>하늘색 배경 = 이름 클릭 시 행 하이라이트</td>
 </tr>
 </table>
 
 <h3>셀 수정</h3>
 <ul>
-<li>셀을 더블클릭하면 드롭다운으로 근무 변경 가능</li>
+<li>셀을 더블클릭하여 근무 변경 가능</li>
 <li>변경 시 규칙 위반 여부를 자동 검사</li>
 <li>위반 시 경고 팝업 → 확인하면 강제 반영 가능</li>
 </ul>
 
 <h3>컬럼 구성</h3>
 <table>
-<tr><td><b>이름</b></td><td>간호사 이름</td></tr>
+<tr><td><b>이름</b></td><td>간호사 이름 (클릭 시 행 하이라이트)</td></tr>
 <tr><td><b>휴가잔여</b></td><td>잔여 연차 (이번 달 사용 후)</td></tr>
 <tr><td><b>잔여수면</b></td><td>= (N기준 발생 + 이월분) - 사용분</td></tr>
-<tr><td><b>날짜</b></td><td>1일 ~ 말일 근무 배정</td></tr>
+<tr><td><b>날짜</b></td><td>28일 주기로 근무 배정</td></tr>
 <tr><td><b>통계</b></td><td>D/E/N/중2/OFF 등 횟수 합계</td></tr>
 </table>
 
@@ -230,6 +243,7 @@ _TAB3_RESULT = _wrap("""
 <h3>내보내기</h3>
 <div class="tip">
 <b>엑셀 내보내기</b> 버튼으로 근무표 + 통계를 xlsx 파일로 저장할 수 있습니다.
+노란 배경(요청 반영) / 빨간 테두리(요청 미반영) 색상도 함께 내보내집니다.
 </div>
 """)
 

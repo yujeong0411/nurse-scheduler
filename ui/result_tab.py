@@ -20,6 +20,7 @@ class ResultTab(QWidget):
         self.dm = data_manager
         self.schedule: Schedule | None = None
         self._building = False
+        self._highlighted_row = -1
         self._init_ui()
 
     def _init_ui(self):
@@ -65,6 +66,7 @@ class ResultTab(QWidget):
         self.table.verticalHeader().setDefaultSectionSize(38)
         self.table.verticalHeader().setVisible(False)
         self.table.setSelectionMode(QTableWidget.SelectionMode.SingleSelection)
+        self.table.cellClicked.connect(self._on_cell_clicked)
         layout.addWidget(self.table, stretch=3)
 
         # 하단 통계 (접기/펼치기)
@@ -184,6 +186,7 @@ class ResultTab(QWidget):
     # ══════════════════════════════════════════
 
     def _display_schedule(self):
+        self._highlighted_row = -1
         self._building = True
         self.table.blockSignals(True)  # cellChanged 시그널 차단
         num_days = self.schedule.num_days
@@ -274,7 +277,7 @@ class ResultTab(QWidget):
                 item.setFont(QFont(FONT_FAMILY, 8))
                 self.table.setItem(row, 1 + ci, item)
 
-            d_cnt, 중2_cnt, e_cnt, n_cnt, off_cnt = 0, 0, 0, 0, 0
+            d_cnt, 중2_cnt, e_cnt, n_cnt, off_cnt, mid_cnt = 0, 0, 0, 0, 0, 0
             menst_cnt, sleep_cnt = 0, 0
 
             for d in range(1, num_days + 1):
@@ -284,53 +287,56 @@ class ResultTab(QWidget):
                 item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
                 item.setFont(QFont(FONT_FAMILY, 8, QFont.Weight.Bold))
 
-                # 배경색/글자색 설정 (기존 코드)
-                if shift in SHIFT_COLORS:
-                    item.setBackground(QBrush(SHIFT_COLORS[shift]))
-                if shift in SHIFT_TEXT_COLORS:
-                    item.setForeground(QBrush(SHIFT_TEXT_COLORS[shift]))
-
-                wd = self.schedule.weekday_index(d)
-                if wd >= 5 and shift not in SHIFT_COLORS:
-                    item.setBackground(QBrush(WEEKEND_BG))
-
-                # 요청사항 미반영 체크 로직
+                # 요청사항 매칭 체크
                 key = (nurse.id, d)
                 req_codes = req_map.get(key, [])
                 is_violation = False
+                is_matched = False
                 req_display = ""
 
                 if req_codes:
                     is_or = is_or_map.get(key, False)
                     req_display = "/".join(req_codes) if is_or else req_codes[0]
 
-                    # 1. 제외 요청 처리 ("D 제외", "E 제외", "N 제외")
                     if any("제외" in c for c in req_codes):
+                        # 제외 요청: 해당 근무가 배치됐으면 위반, 아니면 매칭
                         for c in req_codes:
                             if "제외" in c:
                                 banned_shift = c.split()[0]
                                 if shift == banned_shift:
                                     is_violation = True
                                     break
-
-                    # 2. 일반/OR 요청: 하나라도 매칭되면 충족
+                        if not is_violation:
+                            is_matched = True
                     else:
-                        matched = False
+                        # 일반/OR 요청: 하나라도 매칭되면 충족
                         for c in req_codes:
-                            # 휴무 동등 비교: 요청이 휴무 & 실제도 휴무면 매칭
                             if c in off_set and shift in off_set:
-                                matched = True
+                                is_matched = True
                                 break
                             if c == shift:
-                                matched = True
+                                is_matched = True
                                 break
-                        if not matched:
+                        if not is_matched:
                             is_violation = True
 
-                # 위반 시 테두리 표시 (Delegate가 UserRole을 확인하여 그림)
+                # 배경색: 요청 매칭 → 노란색, 나머지 → 흰색(주말 연회색)
+                wd = self.schedule.weekday_index(d)
+                if is_matched:
+                    item.setBackground(QBrush(QColor("#FFFF66")))
+                elif wd >= 5:
+                    item.setBackground(QBrush(WEEKEND_BG))
+                else:
+                    item.setBackground(QBrush(QColor("#FFFFFF")))
+
+                # 글자색 유지
+                if shift in SHIFT_TEXT_COLORS:
+                    item.setForeground(QBrush(SHIFT_TEXT_COLORS[shift]))
+
+                # 요청 불일치: 빨간 테두리 + 툴팁에 원래 요청 표시
                 if is_violation:
                     item.setData(Qt.ItemDataRole.UserRole, True)
-                    item.setToolTip(f"요청사항 미반영!\n(요청: {req_display} ↔ 실제: {shift})")
+                    item.setToolTip(f"요청: {req_display}  →  실제: {shift}")
 
                 item.setFlags(item.flags() | Qt.ItemFlag.ItemIsEditable)
                 self.table.setItem(row, col, item)
@@ -339,6 +345,8 @@ class ResultTab(QWidget):
                     d_cnt += 1
                 elif shift == "중2":
                     중2_cnt += 1
+                elif shift in ("D9", "D1", "중1"):
+                    mid_cnt += 1
                 elif shift == "E":
                     e_cnt += 1
                 elif shift == "N":
@@ -367,7 +375,7 @@ class ResultTab(QWidget):
             sleep_item = self.table.item(row, 2)
             sleep_item.setText(str(sleep_remain) if sleep_remain > 0 else "")
 
-            total_work = d_cnt + 중2_cnt + e_cnt + n_cnt
+            total_work = d_cnt + 중2_cnt + mid_cnt + e_cnt + n_cnt
             stat_vals = [d_cnt, 중2_cnt, e_cnt, n_cnt, off_cnt, total_work]
             stat_start = DAY_START + num_days
             for i, val in enumerate(stat_vals):
@@ -433,6 +441,41 @@ class ResultTab(QWidget):
         self._building = False
 
     # ══════════════════════════════════════════
+    # 행 하이라이트
+    # ══════════════════════════════════════════
+
+    _ROW_HIGHLIGHT = QColor("#DAEEFF")  # 연한 하늘색
+
+    def _on_cell_clicked(self, row, col):
+        """이름 셀(col 0) 클릭 시 행 하이라이트 토글"""
+        if col != 0:
+            return
+        if not self.schedule or row >= len(self.schedule.nurses):
+            return
+        if self._highlighted_row == row:
+            self._apply_row_highlight(row, False)
+            self._highlighted_row = -1
+        else:
+            if self._highlighted_row >= 0:
+                self._apply_row_highlight(self._highlighted_row, False)
+            self._highlighted_row = row
+            self._apply_row_highlight(row, True)
+
+    def _apply_row_highlight(self, row: int, on: bool):
+        """행 전체 아이템 배경을 하이라이트/원복"""
+        _BG_ROLE = Qt.ItemDataRole.UserRole + 5  # 원본 배경 저장용
+        for col in range(self.table.columnCount()):
+            item = self.table.item(row, col)
+            if item is None:
+                continue
+            if on:
+                item.setData(_BG_ROLE, item.background())
+                item.setBackground(QBrush(self._ROW_HIGHLIGHT))
+            else:
+                orig = item.data(_BG_ROLE)
+                item.setBackground(orig if orig is not None else QBrush())
+
+    # ══════════════════════════════════════════
     # 수동 수정
     # ══════════════════════════════════════════
 
@@ -484,7 +527,7 @@ class ResultTab(QWidget):
 
         # 적용
         self.schedule.set_shift(nurse.id, day, new_shift)
-
+        
         # 색상 업데이트
         self._building = True
         if new_shift in SHIFT_COLORS:

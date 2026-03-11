@@ -111,7 +111,8 @@ class MainWindow(QMainWindow):
         if index == 1:  # 요청사항 탭
             nurses = self.setup_tab.get_nurses()
             start_date = self.setup_tab.get_start_date()
-            self.request_tab.refresh(nurses, start_date)
+            rules = self.rules_tab.get_rules()
+            self.request_tab.refresh(nurses, start_date, rules)
             self.statusBar().showMessage(f"{start_date.isoformat()} 요청사항 편집 중")
 
         elif index == 2:  # 규칙 탭

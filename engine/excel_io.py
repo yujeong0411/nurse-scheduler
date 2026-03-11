@@ -9,6 +9,7 @@
   - 통계 시트
 """
 import calendar
+import io
 import re
 from datetime import date, timedelta
 from openpyxl import Workbook, load_workbook
@@ -22,19 +23,45 @@ from engine.models import (
 )
 
 
+class EncryptedFileError(Exception):
+    """파일이 암호화(비밀번호 보호)되어 있습니다."""
+
+
+def load_workbook_safe(filepath: str, password: str | None = None, **kw):
+    """암호화 여부를 감지하고, 필요하면 복호화 후 workbook 반환.
+
+    - 암호화 없음: 일반 load_workbook 호출
+    - 암호화 + password 있음: msoffcrypto로 복호화 후 BytesIO에서 열기
+    - 암호화 + password 없음: EncryptedFileError 발생
+    """
+    try:
+        import msoffcrypto
+    except ImportError:
+        return load_workbook(filepath, **kw)
+
+    with open(filepath, "rb") as f:
+        office_file = msoffcrypto.OfficeFile(f)
+        if not office_file.is_encrypted():
+            return load_workbook(filepath, **kw)
+        if password is None:
+            raise EncryptedFileError("파일이 암호화되어 있습니다. 비밀번호가 필요합니다.")
+        office_file.load_key(password=password)
+        buf = io.BytesIO()
+        office_file.decrypt(buf)
+    buf.seek(0)
+    return load_workbook(buf, **kw)
+
+
 # ══════════════════════════════════════════
 # 스타일 정의
 # ══════════════════════════════════════════
 
 # 근무별 색상
 FILLS = {
-    # "D":   PatternFill(start_color="DAF0F3", fill_type="solid"),
-    # "D9":  PatternFill(start_color="B4E1E8", fill_type="solid"),  # 중간 계열
-    # "D1":  PatternFill(start_color="B4E1E8", fill_type="solid"),  # 중간 계열
-    # "중1":  PatternFill(start_color="FDEBD0", fill_type="solid"), # 중간 계열
-    # "중2":  PatternFill(start_color="FDEBD0", fill_type="solid"), # 중간 계열
-    # "E":   PatternFill(start_color="FDE9D9", fill_type="solid"),
-    # "N":   PatternFill(start_color="E4DFEC", fill_type="solid"),
+    "D9":  PatternFill(start_color="B4E1E8", fill_type="solid"),
+    "D1":  PatternFill(start_color="B4E1E8", fill_type="solid"),
+    "중1":  PatternFill(start_color="FDEBD0", fill_type="solid"),
+    "중2":  PatternFill(start_color="FDEBD0", fill_type="solid"),
     "OFF": PatternFill(start_color="fcfb92", fill_type="solid"),
     "주":   PatternFill(start_color="fcfb92", fill_type="solid"),
     "법휴": PatternFill(start_color="fcfb92", fill_type="solid"),
@@ -52,9 +79,9 @@ FILLS = {
 }
 FONTS = {
     "D":   Font(size=10),
-    # "D9":  Font(color="2E75B6", bold=True, size=9),  # 중간 계열
-    # "D1":  Font(color="2E75B6", bold=True, size=9),  # 중간 계열
-    # "중1":  Font(color="BF8F00", bold=True, size=9),  # 중간 계열
+    "D9":  Font(color="2E75B6", bold=True, size=9),
+    "D1":  Font(color="2E75B6", bold=True, size=9),
+    "중1":  Font(color="BF8F00", bold=True, size=9),
     "중2":  Font(size=10),
     "E":   Font(size=10),
     "N":   Font(color="d61506", size=10),
@@ -170,12 +197,53 @@ def export_schedule(schedule: Schedule, rules: Rules, filepath: str):
             shift = schedule.get_shift(nurse.id, d)
             cell = ws.cell(row, d + 1, shift)
             cell.alignment = CENTER
-            cell.border = THIN_BORDER
 
-            if shift in FILLS:
-                cell.fill = FILLS[shift]
-            elif schedule.weekday_index(d) >= 5:
-                cell.fill = WEEKEND_FILL
+            # 요청사항 매칭 체크
+            key = (nurse.id, d)
+            req_codes = req_map.get(key, [])
+            is_violation = False
+            is_matched = False
+            req_display = ""
+
+            if req_codes:
+                is_or = is_or_map.get(key, False)
+                req_display = "/".join(req_codes) if is_or else req_codes[0]
+
+                if any("제외" in c for c in req_codes):
+                    for c in req_codes:
+                        if "제외" in c:
+                            banned = c.split()[0]
+                            if shift == banned:
+                                is_violation = True
+                                break
+                    if not is_violation:
+                        is_matched = True
+                else:
+                    for c in req_codes:
+                        if c in _off_set and shift in _off_set:
+                            is_matched = True
+                            break
+                        if c == shift:
+                            is_matched = True
+                            break
+                    if not is_matched:
+                        is_violation = True
+
+            # 배경/테두리: 매칭 → 노란색, 불일치 → 흰색+빨간테두리, 없음 → 흰색(주말 연회색)
+            if is_matched:
+                cell.fill = PatternFill(start_color="FFFF66", fill_type="solid")
+                cell.border = THIN_BORDER
+            elif is_violation:
+                cell.fill = PatternFill(start_color="FFFFFF", fill_type="solid")
+                cell.border = RED_BORDER
+                cell.comment = Comment(f"요청: {req_display}", "시스템")
+            else:
+                if schedule.weekday_index(d) >= 5:
+                    cell.fill = WEEKEND_FILL
+                else:
+                    cell.fill = PatternFill(start_color="FFFFFF", fill_type="solid")
+                cell.border = THIN_BORDER
+
             if shift in FONTS:
                 cell.font = FONTS[shift]
 
@@ -310,7 +378,7 @@ def export_schedule(schedule: Schedule, rules: Rules, filepath: str):
 # 가져오기: 근무 규칙 엑셀 → 간호사 속성
 # ══════════════════════════════════════════
 
-def import_nurse_rules(filepath: str) -> list[Nurse]:
+def import_nurse_rules(filepath: str, password: str | None = None) -> list[Nurse]:
     """근무표_규칙.xlsx에서 간호사 목록 + 속성 불러오기
 
     형식:
@@ -320,7 +388,7 @@ def import_nurse_rules(filepath: str) -> list[Nurse]:
       F열: 비고3 (특수) — 임산부, 남자
       G열: 비고4 (근무형태) — 주4일제
     """
-    wb = load_workbook(filepath, read_only=True, data_only=True)
+    wb = load_workbook_safe(filepath, password, read_only=True, data_only=True)
     ws = wb.active
 
     # 헤더 행 찾기 ("이름" 포함 행)
@@ -536,6 +604,7 @@ def import_requests(
     filepath: str,
     nurses: list[Nurse],
     start_date: date,
+    password: str | None = None,
 ) -> tuple[list[Request], dict[int, int]]:
     """근무신청표 엑셀에서 요청사항 + 간호사 속성 읽기
 
@@ -562,7 +631,7 @@ def import_requests(
       D열: 수면 (값 있으면 전월 이월)
       E~AF열: 1일~28일 (코드 입력)
     """
-    wb = load_workbook(filepath, read_only=True, data_only=True)
+    wb = load_workbook_safe(filepath, password, read_only=True, data_only=True)
     ws = wb.active
 
     nurse_name_map = {n.name.strip(): n for n in nurses}
@@ -688,12 +757,12 @@ def import_requests(
     return requests, weekly_off_map
 
 
-def import_nurses_from_request(filepath: str) -> list[str]:
+def import_nurses_from_request(filepath: str, password: str | None = None) -> list[str]:
     """근무신청표에서 간호사 이름 목록만 추출
 
     Returns: 이름 리스트 (순서 유지)
     """
-    wb = load_workbook(filepath, read_only=True, data_only=True)
+    wb = load_workbook_safe(filepath, password, read_only=True, data_only=True)
     ws = wb.active
 
     result = _find_day_columns(ws)
@@ -729,6 +798,7 @@ def import_prev_schedule(
     filepath: str,
     nurse_names: list[str],
     tail_days: int = 5,
+    password: str | None = None,
 ) -> tuple[dict[str, list[str]], dict[str, int], dict[str, int], dict[str, int]]:
     """이전 달 근무표 엑셀에서 마지막 tail_days일의 근무 + 전체 N 횟수 + 수면 횟수 + 휴가잔여 추출
 
@@ -748,7 +818,7 @@ def import_prev_schedule(
         - sleep_counts: {이름: 전월 수면 사용 횟수}
         - vac_days: {이름: 휴가잔여 일수}
     """
-    wb = load_workbook(filepath, read_only=True, data_only=True)
+    wb = load_workbook_safe(filepath, password, read_only=True, data_only=True)
     ws = wb.active
 
     result = _find_day_columns(ws)
@@ -836,7 +906,7 @@ def import_prev_schedule(
 # 파일 날짜 탐지
 # ══════════════════════════════════════════
 
-def detect_file_month(filepath: str) -> tuple[int | None, int | None]:
+def detect_file_month(filepath: str, password: str | None = None) -> tuple[int | None, int | None]:
     """엑셀 파일에서 연도/월 정보를 탐지
 
     파일명 → 파일 내용 순으로 검색.
@@ -857,7 +927,7 @@ def detect_file_month(filepath: str) -> tuple[int | None, int | None]:
             return y, mo
 
     # ── 2단계: 파일 내용에서 탐지 ──
-    wb = load_workbook(filepath, read_only=True, data_only=True)
+    wb = load_workbook_safe(filepath, password, read_only=True, data_only=True)
     ws = wb.active
 
     # Pass 1: 고신뢰 — "YYYY년 M월" 또는 "YYYY.MM"
