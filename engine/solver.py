@@ -384,6 +384,115 @@ def validate_requests(
                     f"{nurse.name}: 전월 N → 1일 {day1_code} → 2일 {day2_code} 패턴 불가"
                 )
 
+        # 13. POFF: 임산부만 가능
+        poff_reqs = [r for r in hard_reqs if r.code == "POFF"]
+        if poff_reqs and not nurse.is_pregnant:
+            days = ", ".join(fmt_day(r.day) for r in poff_reqs)
+            warnings.append(f"{nurse.name}: POFF는 임산부만 신청 가능 ({days})")
+
+        # 14. 법휴: 공휴일에만
+        holiday_set = set(rules.public_holidays)
+        for r in hard_reqs:
+            if r.code == "법휴" and r.day not in holiday_set:
+                warnings.append(
+                    f"{nurse.name}: {fmt_day(r.day)}은 공휴일이 아닌데 법휴 요청"
+                )
+
+        # 15. N 다음날 보수/필수/번표 금지 (H3c)
+        _near_work = {"보수", "필수", "번표"}
+        for r in reqs:
+            if r.code == "N":
+                nxt = req_day_code.get(r.day + 1, "")
+                if nxt in _near_work:
+                    warnings.append(
+                        f"{nurse.name}: N 다음날 {nxt} 요청 불가"
+                        f" ({fmt_day(r.day)} N → {fmt_day(r.day + 1)} {nxt})"
+                    )
+
+        # 16. NN 후 2일 휴무 체크
+        for r in reqs:
+            if r.code == "N" and req_day_code.get(r.day - 1) == "N":
+                nxt1 = req_day_code.get(r.day + 1, "")
+                nxt2 = req_day_code.get(r.day + 2, "")
+                if nxt1 in WORK_SHIFTS:
+                    warnings.append(
+                        f"{nurse.name}: NN 후 2일 휴무 필요"
+                        f" — {fmt_day(r.day + 1)} {nxt1} 요청 불가"
+                    )
+                elif nxt1 and nxt1 not in WORK_SHIFTS and nxt2 in WORK_SHIFTS:
+                    warnings.append(
+                        f"{nurse.name}: NN 후 2일 휴무 필요"
+                        f" — {fmt_day(r.day + 2)} {nxt2} 요청 불가"
+                    )
+
+        # 17. 월 N 최대 초과
+        n_count = sum(1 for r in reqs if r.code == "N")
+        if n_count > rules.max_N_per_month:
+            warnings.append(
+                f"{nurse.name}: N 요청 {n_count}개 — 월 최대 {rules.max_N_per_month}개 초과"
+            )
+
+        # 18. 연속 N 초과
+        max_cn = rules.max_consecutive_N
+        tail = nurse.prev_tail_shifts
+        reported = False
+        for r in reqs:
+            if reported:
+                break
+            if r.code != "N":
+                continue
+            count = 1
+            d2 = r.day - 1
+            while d2 >= 1 and req_day_code.get(d2) == "N":
+                count += 1
+                d2 -= 1
+            if d2 == 0 and tail:
+                for t in reversed(tail):
+                    if t == "N":
+                        count += 1
+                    else:
+                        break
+            d2 = r.day + 1
+            while d2 <= num_days and req_day_code.get(d2) == "N":
+                count += 1
+                d2 += 1
+            if count > max_cn:
+                warnings.append(
+                    f"{nurse.name}: 연속 N {count}개 요청 — 최대 {max_cn}개 초과"
+                    f" ({fmt_day(r.day)} 기준)"
+                )
+                reported = True
+
+        # 19. 연속 근무 초과
+        max_w = rules.max_consecutive_work
+        reported = False
+        for r in reqs:
+            if reported:
+                break
+            if r.code not in WORK_SHIFTS:
+                continue
+            count = 1
+            d2 = r.day - 1
+            while d2 >= 1 and req_day_code.get(d2) in WORK_SHIFTS:
+                count += 1
+                d2 -= 1
+            if d2 == 0 and tail:
+                for t in reversed(tail):
+                    if t in WORK_SHIFTS:
+                        count += 1
+                    else:
+                        break
+            d2 = r.day + 1
+            while d2 <= num_days and req_day_code.get(d2) in WORK_SHIFTS:
+                count += 1
+                d2 += 1
+            if count > max_w:
+                warnings.append(
+                    f"{nurse.name}: 연속 근무 {count}일 요청 — 최대 {max_w}일 초과"
+                    f" ({fmt_day(r.day)} 기준)"
+                )
+                reported = True
+
     return warnings
 
 
