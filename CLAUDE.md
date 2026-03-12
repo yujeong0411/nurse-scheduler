@@ -19,7 +19,7 @@ uv run python main.py
 build.bat
 ```
 
-Python 3.12+ required. Dependencies: PyQt6, ortools, openpyxl. No test suite exists.
+Python 3.12+ required. Dependencies: PyQt6, ortools, openpyxl, holidays, msoffcrypto-tool. No test suite exists.
 
 ## Architecture
 
@@ -31,6 +31,7 @@ Python 3.12+ required. Dependencies: PyQt6, ortools, openpyxl. No test suite exi
 - **validator.py** — `validate_change()` checks 16 constraint types for manual cell edits: reverse order (both directions), consecutive work/night limits, NN→2 off, monthly N limit, weekly off, daily staffing minimums, grade/role tier requirements, legal holidays, 4-day week, pregnancy limits, vacation balance.
 - **evaluator.py** — `evaluate_schedule()` scores schedule fairness (0-100, grades A-F) based on shift deviation, night/weekend equity, bad patterns, request fulfillment rate, and rule violations. Returns `violation_details` list with per-nurse and per-day breakdown. Weekend 중2 staffing is excluded from violation checks (중2 is weekday-only).
 - **excel_io.py** — `export_schedule()` writes a two-sheet xlsx (schedule + stats) including 휴가잔여/생휴/잔여수면 columns. `import_nurse_rules()` reads nurse settings from 근무표_규칙.xlsx. `import_requests()` reads calendar grid format. `import_nurses_from_request()` extracts nurse names from request files. `import_prev_schedule()` reads previous month schedule for tail shifts and N counts. All import functions recognize both `"1일"` and `"1"` date header formats.
+- **kr_holidays.py** — Korean public holiday lookup via the `holidays` package. Key functions: `get_holiday_days(year, month)` → `list[int]`, `get_holidays_with_names(year, month)` → `dict[int, str]`. Used by rules_tab and solver to auto-populate 법휴 dates.
 
 ### ui/ — PyQt6 widgets, one file per tab
 - **main_window.py** — `MainWindow` with 4-tab `QTabWidget`. Owns `DataManager` and passes it to all tabs. Tab switching triggers data sync via `_on_tab_changed`.
@@ -39,6 +40,7 @@ Python 3.12+ required. Dependencies: PyQt6, ortools, openpyxl. No test suite exi
 - **rules_tab.py** — Tab 3. Scheduling constraints form: staffing minimums, forbidden patterns, consecutive limits, grade requirements, pregnancy/menstrual rules, sleep conditions, public holidays.
 - **result_tab.py** — Tab 4. Displays generated schedule in a color-coded grid with 휴가잔여 and 잔여수면 columns next to nurse names. Supports inline editing with violation warnings. Shows per-shift aggregation rows, bad-pattern detection, violation details, and per-nurse statistics. 잔여수면 = (earned from N count + pending carry-over) - used.
 - **styles.py** — `SHIFT_COLORS` dict, `REQUEST_CODES` list, `SKILL_LEVELS` labels, and the app-wide Qt stylesheet.
+- **guide_panel.py** — `GuidePanel` widget: a scrollable HTML help panel that shows context-sensitive guidance per tab. `set_tab(index)` switches content. Embedded in `MainWindow` as a side panel alongside the tab widget.
 
 ### Data flow
 `SetupTab` → nurses/year/month → `RequestTab` → requests → `ResultTab` calls `solver.solve_schedule()` → `Schedule` displayed in grid. Manual edits go through `validator.validate_change()`. All tabs share a single `DataManager` instance for JSON I/O.
@@ -46,7 +48,7 @@ Python 3.12+ required. Dependencies: PyQt6, ortools, openpyxl. No test suite exi
 ## Key Domain Concepts
 
 - **Shift codes**: Work shifts: `D`, `E`, `N`, `중2` (mid-shift, weekday-only, requires role "중2"). Off types (11): `주`, `OFF`, `POFF`, `법휴`, `수면`, `생휴`, `휴가`, `특휴`, `공가`, `경가`, `보수`
-- **Request codes**: Work preferences (`D`, `E`, `N`), off requests (`OFF`, `법휴`, `휴가`, etc.), exclusions (`D 제외`, `E 제외`, `N 제외`)
+- **Request codes**: Work preferences (`D`, `E`, `N`), request-only work shifts (`D9`, `D1`, `중1` — not auto-assigned by solver, only placed when explicitly requested), off requests (`OFF`, `법휴`, `휴가`, `병가`, `필수`, `번표`, etc.), exclusions (`D 제외`, `E 제외`, `N 제외`). OR-requests use `/` separator (e.g. `D/휴가` = assign either D or 휴가).
 - **Roles (비고1)**: `책임만`, `외상`, `혼자 관찰불가`, `혼자 관찰`, `급성구역`, `준급성`, `격리구역`, `중2` — with tiered cumulative staffing limits via `ROLE_TIERS`. Role "중2" designates nurses eligible for 중2 shift.
 - **Grades (비고2)**: `책임`, `서브차지`. Grade checks (H12/H13) apply to D/E/N only, not 중2.
 - **Shift order**: D(1) → 중2(2) → E(3) → N(4). Reverse transitions forbidden via `ban_reverse_order`.

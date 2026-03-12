@@ -1,0 +1,11 @@
+fastapi==0.115.6
+uvicorn[standard]==0.32.1
+pydantic-settings==2.7.0
+python-jose[cryptography]==3.3.0
+passlib[bcrypt]==1.7.4
+supabase==2.10.0
+ortools>=9.15.6755
+openpyxl>=3.1.5
+holidays>=0.90
+msoffcrypto-tool>=5.4.2
+python-multipart==0.0.20
