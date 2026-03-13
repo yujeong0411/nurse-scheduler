@@ -30,7 +30,7 @@ export default function ShiftSheet({ day, shifts, notes = {}, nurse, rules, star
     if (s === current) { onSelect('', ''); return }
     const ps = { ...shifts }; delete ps[day]
     const vs = validate(ps, day, s, nurse, rules, startDate)
-    if (vs.length > 0) { setConfirm({ shift: s, violations: vs }); return }
+    if (vs.length > 0) { setConfirm({ shift: s, violations: vs }); return }  // 차단 (override 없음)
     enterNoteStep(s)
   }
 
@@ -101,23 +101,17 @@ export default function ShiftSheet({ day, shifts, notes = {}, nurse, rules, star
           </div>
         ) : (
           <>
-            {/* 위반 확인 */}
+            {/* 위반 — 선택 불가 */}
             {confirm && (
               <div className="mx-4 my-3 rounded-2xl p-4 bg-red-50 border border-red-200 flex-shrink-0">
-                <p className="font-bold text-red-700 mb-2 text-sm">⚠️ {confirm.shift} — 규칙 위반</p>
+                <p className="font-bold text-red-700 mb-2 text-sm">🚫 {confirm.shift} — 선택 불가</p>
                 {confirm.violations.map((v, i) => (
                   <p key={i} className="text-red-500 text-xs mt-1">• {v}</p>
                 ))}
-                <div className="flex gap-2 mt-3">
-                  <button onClick={() => setConfirm(null)}
-                    className="flex-1 bg-white rounded-xl font-semibold text-sm py-2.5 border border-slate-200">
-                    취소
-                  </button>
-                  <button onClick={() => enterNoteStep(confirm.shift)}
-                    className="flex-1 bg-red-500 text-white rounded-xl font-bold text-sm py-2.5">
-                    무시하고 적용
-                  </button>
-                </div>
+                <button onClick={() => setConfirm(null)}
+                  className="mt-3 w-full bg-white rounded-xl font-semibold text-sm py-2.5 border border-slate-200">
+                  확인
+                </button>
               </div>
             )}
 

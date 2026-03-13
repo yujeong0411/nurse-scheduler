@@ -201,7 +201,7 @@ export default function AdminLayout() {
                 <p className="px-3 pt-2.5 pb-1 text-xs font-semibold text-slate-400">기간 선택 · 간호사에게 표시할 기간을 활성화하세요</p>
                 {periods.map(p => {
                   const ed = new Date(new Date(p.start_date).getTime() + 27 * 86400000)
-                  const isSelected = p.id === selPeriod?.id
+                  const isSelected = p.id === selPeriodId
                   const isActive = p.is_active
                   return (
                     <div key={p.id} className={`flex items-center group transition-colors ${isSelected ? 'bg-blue-50' : 'hover:bg-slate-50'}`}>

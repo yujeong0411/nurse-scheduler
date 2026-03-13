@@ -118,8 +118,10 @@ export default function NursePage() {
 
   const nurseForValidate = nurse ? { ...nurse, is_4day: nurse.is_4day_week } : null
   const allV = (startDate && nurseForValidate) ? Object.entries(shifts).reduce((acc, [day, code]) => {
-    validate(shifts, +day, code, nurseForValidate, rules, startDate)
-      .forEach(v => acc.push(`${day}일: ${v}`))
+    const ps = { ...shifts }; delete ps[+day]
+    const label = mmdd(getDate(startDate, +day))
+    validate(ps, +day, code, nurseForValidate, rules, startDate)
+      .forEach(v => acc.push(`${label}: ${v}`))
     return acc
   }, []) : []
 
@@ -273,7 +275,8 @@ export default function NursePage() {
                 const isHol = (rules.public_holidays || []).includes(day)
                 const s = shifts[day] || ''
                 const st = sc(s)
-                const vs = s && nurseForValidate ? validate(shifts, day, s, nurseForValidate, rules, startDate) : []
+                const ps = { ...shifts }; delete ps[day]
+                const vs = s && nurseForValidate ? validate(ps, day, s, nurseForValidate, rules, startDate) : []
                 const dateObj = getDate(startDate, day)
                 const fixedWd = (nurseForValidate?.fixed_weekly_off != null && nurseForValidate?.fixed_weekly_off !== '')
                   ? parseInt(nurseForValidate.fixed_weekly_off) : -1

@@ -1,13 +1,18 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
-import { requestsApi } from '../../api/client'
-import { sc, fmtDate, getWd, getDate, mmdd, WD, NUM_DAYS, SHIFT_GROUPS } from '../../utils/constants'
+import { requestsApi, nursesApi, rulesApi } from '../../api/client'
+import { sc, fmtDate, getWd, getDate, mmdd, WD, NUM_DAYS, SHIFT_GROUPS, DEFAULT_RULES } from '../../utils/constants'
+import { validate } from '../../utils/validate'
 
 export default function SubmissionsTab({ period }) {
   const [status, setStatus] = useState([])
   const [allRequests, setAllRequests] = useState({})
+  const [fixedOffMap, setFixedOffMap] = useState({})   // nurse_id → fixed_weekly_off (int)
+  const [nursesMap, setNursesMap] = useState({})        // nurse_id → nurse object
+  const [rules, setRules] = useState(DEFAULT_RULES)
   const [loading, setLoading] = useState(true)
   const [exporting, setExporting] = useState(false)
   const [activePick, setActivePick] = useState(null)
+  const [blockPopup, setBlockPopup] = useState(null)  // { code, violations[] }
   const [saving, setSaving] = useState(null)
   const pickerRef = useRef(null)
   const periodIdRef = useRef(null)
@@ -20,7 +25,9 @@ export default function SubmissionsTab({ period }) {
     Promise.all([
       requestsApi.getStatus(period.period_id),
       requestsApi.getAll(period.period_id),
-    ]).then(([sRes, aRes]) => {
+      nursesApi.list(),
+      rulesApi.get(),
+    ]).then(([sRes, aRes, nRes, rRes]) => {
       setStatus(sRes.data)
       const map = {}
       aRes.data.forEach(item => {
@@ -29,6 +36,14 @@ export default function SubmissionsTab({ period }) {
       })
       setAllRequests(map)
       allRequestsRef.current = map
+      const fMap = {}, nMap = {}
+      ;(nRes.data || []).forEach(n => {
+        nMap[n.id] = n
+        if (n.fixed_weekly_off != null && n.fixed_weekly_off !== '') fMap[n.id] = parseInt(n.fixed_weekly_off)
+      })
+      setFixedOffMap(fMap)
+      setNursesMap(nMap)
+      if (rRes.data) setRules(rRes.data)
     }).catch(() => {}).finally(() => setLoading(false))
   }, [period?.period_id])
 
@@ -188,14 +203,20 @@ export default function SubmissionsTab({ period }) {
                     const isSat = wd === 5, isSun = wd === 6
                     const c = code ? sc(code) : null
                     const isActive = activePick?.nurseId === st.nurse_id && activePick?.day === d
+                    const isFixedOff = fixedOffMap[st.nurse_id] === wd
                     return (
                       <td key={d}
-                        onClick={(e) => handleCellClick(e, st.nurse_id, d)}
-                        className="text-center p-0.5 border-b border-r border-slate-100 cursor-pointer transition-colors"
+                        onClick={isFixedOff ? undefined : (e) => handleCellClick(e, st.nurse_id, d)}
+                        className={`text-center p-0.5 border-b border-r border-slate-100 transition-colors ${isFixedOff ? 'cursor-default' : 'cursor-pointer'}`}
                         style={{
-                          background: isActive ? '#dbeafe' : (isSun ? '#fef2f2' : isSat ? '#eff6ff' : undefined),
+                          background: isActive ? '#dbeafe' : (isSun ? '#fef2f2' : isSat ? '#eff6ff' : isFixedOff ? '#f5f5f4' : undefined),
                         }}>
-                        {code ? (
+                        {isFixedOff ? (
+                          <span className="inline-flex items-center justify-center rounded font-semibold"
+                            style={{ background: '#e7e5e4', color: '#78716c', border: '1px solid #d6d3d1', fontSize: 11, minWidth: 34, height: 22 }}>
+                            주
+                          </span>
+                        ) : code ? (
                           <span className="relative inline-flex items-center justify-center rounded font-semibold"
                             style={{ background: c.bg, color: c.fg, border: `1px solid ${c.border}`, fontSize: 11, minWidth: 34, height: 22, lineHeight: 1 }}
                             title={note || undefined}>
@@ -218,7 +239,16 @@ export default function SubmissionsTab({ period }) {
       </div>
 
       {/* 코드 피커 */}
-      {activePick && (
+      {activePick && (() => {
+        const { nurseId, day } = activePick
+        const nurse = nursesMap[nurseId] || null
+        const startDate = period?.start_date || null
+        const shiftsForNurse = Object.fromEntries(
+          Object.entries(allRequestsRef.current[nurseId] || {}).map(([d, v]) => [+d, v.code])
+        )
+        const shiftsWithout = { ...shiftsForNurse }; delete shiftsWithout[day]
+        const currentCode = shiftsForNurse[day] || ''
+        return (
         <div ref={pickerRef}
           className="fixed z-50 bg-white rounded-2xl shadow-2xl border border-slate-200 p-3"
           style={{
@@ -233,11 +263,25 @@ export default function SubmissionsTab({ period }) {
                 <div className="flex flex-wrap gap-1">
                   {grp.shifts.map(code => {
                     const c = sc(code)
+                    const vs = nurse ? validate(shiftsWithout, day, code, nurse, rules, startDate) : []
+                    const isCur = code === currentCode
                     return (
-                      <button key={code} onClick={() => handlePickCode(code)}
-                        className="px-2 py-0.5 rounded font-bold text-xs transition-opacity hover:opacity-80"
-                        style={{ background: c.bg, color: c.fg, border: `1px solid ${c.border}` }}>
+                      <button key={code}
+                        onClick={() => vs.length > 0 && !isCur
+                          ? setBlockPopup({ code, violations: vs })
+                          : handlePickCode(code)}
+                        className="relative px-2 py-0.5 rounded font-bold text-xs transition-opacity hover:opacity-80"
+                        style={{
+                          background: isCur ? c.fg : c.bg,
+                          color: isCur ? 'white' : c.fg,
+                          border: `1px solid ${vs.length > 0 && !isCur ? '#FCA5A5' : c.border}`,
+                          opacity: vs.length > 0 && !isCur ? 0.45 : 1,
+                        }}>
                         {code}
+                        {vs.length > 0 && !isCur && (
+                          <span className="absolute -top-1 -right-1 bg-red-500 text-white rounded-full flex items-center justify-center font-black"
+                            style={{ width: 13, height: 13, fontSize: 8 }}>!</span>
+                        )}
                       </button>
                     )
                   })}
@@ -250,6 +294,24 @@ export default function SubmissionsTab({ period }) {
                 지우기
               </button>
             </div>
+          </div>
+        </div>
+        )
+      })()}
+
+      {/* 위반 차단 팝업 */}
+      {blockPopup && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 px-4"
+          onClick={() => setBlockPopup(null)}>
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm p-5" onClick={e => e.stopPropagation()}>
+            <p className="font-bold text-red-700 text-base mb-3">🚫 {blockPopup.code} — 선택 불가</p>
+            {blockPopup.violations.map((v, i) => (
+              <p key={i} className="text-red-500 text-sm mt-1">• {v}</p>
+            ))}
+            <button onClick={() => setBlockPopup(null)}
+              className="mt-4 w-full py-2.5 rounded-xl font-semibold text-sm bg-slate-100 hover:bg-slate-200 transition-colors">
+              확인
+            </button>
           </div>
         </div>
       )}

@@ -243,8 +243,16 @@ def export_requests_excel(period_id: str, _: dict = Depends(get_current_admin)):
             col = i + 2
             cell = ws.cell(row_idx, col)
 
-            entry = shifts_raw.get(day)
-            if entry:
+            fixed_off = nurse.get("fixed_weekly_off")
+            is_fixed_off = fixed_off is not None and fixed_off != "" and int(fixed_off) == wd
+
+            if is_fixed_off:
+                cell.value = "주"
+                cell.fill = PatternFill("solid", fgColor="FFFFFF")
+                cell.alignment = CENTER
+                cell.font = Font(size=9, color="666666")
+            elif shifts_raw.get(day):
+                entry = shifts_raw[day]
                 codes = entry["codes"]
                 note = entry.get("note", "")
                 or_entries = [c for c, is_or in codes if is_or]
