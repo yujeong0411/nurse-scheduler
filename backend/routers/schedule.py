@@ -42,6 +42,22 @@ async def generate_schedule(
     return JobStatusOut(job_id=job_id, status="pending")
 
 
+@router.get("/job/period/{period_id}", response_model=JobStatusOut)
+def get_latest_job_by_period(period_id: str, _: dict = Depends(get_current_admin)):
+    """기간의 최신 solver job 조회 (진행 중 여부 확인용)"""
+    db = get_db()
+    res = db.table("solver_jobs").select("*").eq("period_id", period_id).order("created_at", desc=True).limit(1).execute()
+    if not res.data:
+        raise HTTPException(404)
+    job = res.data[0]
+    return JobStatusOut(
+        job_id=job["id"],
+        status=job["status"],
+        schedule_id=job.get("schedule_id"),
+        error_msg=job.get("error_msg"),
+    )
+
+
 @router.get("/job/{job_id}", response_model=JobStatusOut)
 def get_job_status(job_id: str, _: dict = Depends(get_current_admin)):
     db = get_db()
@@ -166,7 +182,7 @@ def update_cell(schedule_id: str, body: CellUpdate, _: dict = Depends(get_curren
         is_male=n.get("is_male", False), is_4day_week=n.get("is_4day_week", False),
         fixed_weekly_off=n.get("fixed_weekly_off"),
         vacation_days=n.get("vacation_days", 0),
-        prev_month_n=n.get("prev_month_n", 0),
+        prev_month_N=n.get("prev_month_n", 0),
         pending_sleep=n.get("pending_sleep", False),
         menstrual_used=n.get("menstrual_used", False),
         prev_tail_shifts=n.get("prev_tail_shifts", []),
@@ -227,7 +243,7 @@ def evaluate_schedule_endpoint(schedule_id: str, _: dict = Depends(get_current_a
               is_4day_week=n.get("is_4day_week",False),
               fixed_weekly_off=n.get("fixed_weekly_off"),
               vacation_days=n.get("vacation_days",0),
-              prev_month_n=n.get("prev_month_n",0),
+              prev_month_N=n.get("prev_month_n",0),
               pending_sleep=n.get("pending_sleep",False),
               menstrual_used=n.get("menstrual_used",False),
               prev_tail_shifts=n.get("prev_tail_shifts",[]))

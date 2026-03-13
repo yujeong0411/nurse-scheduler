@@ -22,15 +22,33 @@ def _run_solver_sync(
         sys.path.insert(0, root)
 
     from engine.models import Nurse, Request, Rules
-    from engine.solver import solve_schedule
+    from engine.solver import solve_schedule, validate_requests
     from datetime import date
+    import logging
 
     nurses   = [Nurse.from_dict(n)   for n in nurses_data]
     requests = [Request.from_dict(r) for r in requests_data]
     rules    = Rules.from_dict(rules_data)
     start_date = date.fromisoformat(start_date_str)
 
+    # ── 사전 진단 ──
+    logging.warning(
+        f"[solver] 간호사 {len(nurses)}명 | "
+        f"D={rules.daily_D} E={rules.daily_E} N={rules.daily_N} 중2={rules.daily_M} | "
+        f"maxN={rules.max_N_per_month} off2N={rules.off_after_2N} | "
+        f"요청 {len(requests)}건 | 시작일={start_date_str}"
+    )
+    warnings = validate_requests(nurses, requests, rules, start_date)
+    if warnings:
+        logging.warning("[solver] validate_requests 경고:\n" + "\n".join(f"  - {w}" for w in warnings))
+
     schedule = solve_schedule(nurses, requests, rules, start_date, timeout_seconds)
+
+    if not schedule.schedule_data:
+        raise RuntimeError(
+            "INFEASIBLE — 해를 찾을 수 없습니다.\n"
+            + (("사전 경고:\n" + "\n".join(f"  - {w}" for w in warnings)) if warnings else "사전 경고 없음 (규칙/인원 충돌 가능성)")
+        )
 
     # 직렬화 가능한 dict로 변환: {nurse_id(str): {day(str): shift}}
     result: dict = {}

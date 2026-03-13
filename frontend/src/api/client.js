@@ -90,7 +90,8 @@ export const requestsApi = {
 export const scheduleApi = {
   generate:      (period_id, timeout_seconds = 180) =>
     api.post('/schedule/generate', { period_id, timeout_seconds }),
-  jobStatus:     (job_id) => api.get(`/schedule/job/${job_id}`),
+  jobStatus:          (job_id) => api.get(`/schedule/job/${job_id}`),
+  latestJobByPeriod:  (period_id) => api.get(`/schedule/job/period/${period_id}`),
   getByPeriod:   (period_id) => api.get(`/schedule/period/${period_id}`),
   get:           (schedule_id) => api.get(`/schedule/${schedule_id}`),
   updateCell: (schedule_id, data) => api.patch(`/schedule/${schedule_id}/cell`, data),

@@ -125,7 +125,10 @@ export default function ScheduleResultTab({ period }) {
   const [msg, setMsg] = useState(null) // { text, ok }
   const pollRef = useRef(null)
 
-  const showMsg = (text, ok = true) => { setMsg({ text, ok }); setTimeout(() => setMsg(null), 3000) }
+  const showMsg = (text, ok = true) => {
+    setMsg({ text, ok })
+    if (ok) setTimeout(() => setMsg(null), 3000)  // 성공만 자동 닫힘, 오류는 수동 닫기
+  }
 
   useEffect(() => {
     const periodId = period?.period_id
@@ -136,10 +139,11 @@ export default function ScheduleResultTab({ period }) {
         setSettings(cfg)
         const pid = cfg.period_id
         if (!pid) return
-        // 기존 근무표 + 신청 병렬 로드
-        const [schedRes, reqRes] = await Promise.allSettled([
+        // 기존 근무표 + 신청 + 최신 job 병렬 로드
+        const [schedRes, reqRes, jobRes] = await Promise.allSettled([
           scheduleApi.getByPeriod(pid),
           requestsApi.getAll(pid),
+          scheduleApi.latestJobByPeriod(pid),
         ])
         if (schedRes.status === 'fulfilled') {
           const d = schedRes.value.data
@@ -157,6 +161,15 @@ export default function ScheduleResultTab({ period }) {
             map[nid][day].codes.push(r.code)
           }
           setReqMap(map)
+        }
+        // 진행 중인 job이 있으면 재폴링 재개
+        if (jobRes.status === 'fulfilled') {
+          const job = jobRes.value.data
+          if (job.status === 'pending' || job.status === 'running') {
+            setJobId(job.job_id)
+            setJobStatus(job.status)
+            setGenerating(true)
+          }
         }
       } catch {}
       finally { setLoading(false) }
@@ -324,8 +337,12 @@ export default function ScheduleResultTab({ period }) {
 
       {/* 메시지 */}
       {msg && (
-        <div className={`px-4 py-2 text-xs font-semibold flex-shrink-0 ${msg.ok ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-600'}`}>
-          {msg.text}
+        <div className={`px-4 py-2.5 flex items-start gap-3 flex-shrink-0 ${msg.ok ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-700 border-b border-red-200'}`}>
+          <p className="text-xs font-semibold flex-1 whitespace-pre-wrap">{msg.text}</p>
+          {!msg.ok && (
+            <button onClick={() => setMsg(null)}
+              className="flex-shrink-0 text-red-400 hover:text-red-600 font-bold text-base leading-none mt-0.5">×</button>
+          )}
         </div>
       )}
 
