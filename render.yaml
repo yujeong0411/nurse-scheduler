@@ -3,16 +3,5 @@ services:
     name: nurse-scheduler-api
     runtime: python
     rootDir: .
-    buildCommand: pip install -r backend/requirements.txt
-    startCommand: uvicorn backend.main:app --host 0.0.0.0 --port $PORT
-    envVars:
-      - key: SUPABASE_URL
-        sync: false
-      - key: SUPABASE_SERVICE_KEY
-        sync: false
-      - key: SUPABASE_ANON_KEY
-        sync: false
-      - key: JWT_SECRET
-        sync: false
-      - key: DEPARTMENT_ID
-        sync: false
+    buildCommand: uv sync --project backend --frozen && uv cache prune --ci
+    startCommand: uv run --project backend uvicorn main:app --host 0.0.0.0 --port $PORT
