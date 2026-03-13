@@ -111,16 +111,14 @@ def _convert_nurses(nurses_data: list[dict]) -> list[dict]:
 
 
 def _convert_requests(raw_requests: list[dict], nurses: list[dict]) -> list[dict]:
-    """DB requests → engine Request.from_dict 형식 (nurse_id를 int index로 매핑)"""
-    # nurse UUID → int id 매핑 (engine은 int id를 사용)
-    uuid_to_int = {n["id"]: i for i, n in enumerate(nurses)}
+    """DB requests → engine Request.from_dict 형식 (nurse_id UUID 그대로 유지)"""
+    nurse_ids = {n["id"] for n in nurses}
     result = []
     for r in raw_requests:
-        nid = uuid_to_int.get(r["nurse_id"])
-        if nid is None:
+        if r["nurse_id"] not in nurse_ids:
             continue
         result.append({
-            "nurse_id": nid,
+            "nurse_id": r["nurse_id"],  # UUID 그대로 — solver의 nurse.id와 일치
             "day": r["day"],
             "code": r["code"],
             "is_or": r.get("is_or", False),

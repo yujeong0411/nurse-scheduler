@@ -148,7 +148,7 @@ def export_schedule(schedule: Schedule, rules: Rules, filepath: str):
 
     # 헤더 (행3)
     stat_cols = ["D", "중2", "E", "N", "OFF", "총 근무", "주말", "휴가잔여", "생휴", "잔여수면",]
-    headers = ["이름"] + [f"{d}" for d in range(1, num_days + 1)] + stat_cols
+    headers = ["이름"] + [f"{(start_date + timedelta(days=d-1)).day}일" for d in range(1, num_days + 1)] + stat_cols
     for c, h in enumerate(headers, 1):
         cell = ws.cell(3, c, h)
         cell.fill = HEADER_FILL

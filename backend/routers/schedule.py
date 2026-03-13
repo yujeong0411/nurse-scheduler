@@ -63,6 +63,42 @@ def get_job_status(job_id: str, _: dict = Depends(get_current_admin)):
     )
 
 
+@router.get("/period/{period_id}", response_model=ScheduleOut)
+def get_schedule_by_period(period_id: str, _: dict = Depends(get_current_admin)):
+    """기간의 최신 근무표 조회"""
+    db = get_db()
+    res = db.table("schedules").select("*").eq("period_id", period_id).order("created_at", desc=True).limit(1).execute()
+    if not res.data:
+        raise HTTPException(404)
+    sched = res.data[0]
+
+    nurses_res = db_nurses(db).order("sort_order").execute()
+    nurses = [
+        NurseOut(
+            id=n["id"], name=n["name"], role=n.get("role", ""),
+            grade=n.get("grade", ""), is_pregnant=n.get("is_pregnant", False),
+            is_male=n.get("is_male", False), is_4day_week=n.get("is_4day_week", False),
+            fixed_weekly_off=n.get("fixed_weekly_off"),
+            vacation_days=n.get("vacation_days", 0),
+            prev_month_n=n.get("prev_month_n", 0),
+            pending_sleep=n.get("pending_sleep", False),
+            menstrual_used=n.get("menstrual_used", False),
+            prev_tail_shifts=n.get("prev_tail_shifts", []),
+            note=n.get("note", ""), sort_order=n.get("sort_order", 0),
+        )
+        for n in nurses_res.data
+    ]
+    return ScheduleOut(
+        id=sched["id"],
+        period_id=sched["period_id"],
+        schedule_data=sched.get("schedule_data", {}),
+        nurses=nurses,
+        score=sched.get("score"),
+        grade=sched.get("grade"),
+        eval_details=sched.get("eval_details", {}),
+    )
+
+
 @router.get("/{schedule_id}", response_model=ScheduleOut)
 def get_schedule(schedule_id: str, _: dict = Depends(get_current_admin)):
     db = get_db()

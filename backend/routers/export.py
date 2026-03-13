@@ -43,7 +43,7 @@ def export_schedule_excel(schedule_id: str, _: dict = Depends(get_current_admin)
             is_4day_week=n.get("is_4day_week",False),
             fixed_weekly_off=n.get("fixed_weekly_off"),
             vacation_days=n.get("vacation_days",0),
-            prev_month_n=n.get("prev_month_n",0),
+            prev_month_N=n.get("prev_month_n",0),
             pending_sleep=n.get("pending_sleep",False),
             menstrual_used=n.get("menstrual_used",False),
             prev_tail_shifts=n.get("prev_tail_shifts",[]),
@@ -80,9 +80,11 @@ def export_schedule_excel(schedule_id: str, _: dict = Depends(get_current_admin)
     finally:
         os.unlink(tmp_path)
 
+    from urllib.parse import quote
     filename = f"근무표_{period['start_date']}.xlsx"
+    encoded = quote(filename, safe='')
     return StreamingResponse(
         io.BytesIO(content),
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        headers={"Content-Disposition": f"attachment; filename*=UTF-8''{filename}"},
+        headers={"Content-Disposition": f"attachment; filename*=UTF-8''{encoded}"},
     )

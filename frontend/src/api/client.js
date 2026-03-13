@@ -88,10 +88,11 @@ export const requestsApi = {
 
 // ── 근무표 ────────────────────────────────────────
 export const scheduleApi = {
-  generate:   (period_id, timeout_seconds = 180) =>
+  generate:      (period_id, timeout_seconds = 180) =>
     api.post('/schedule/generate', { period_id, timeout_seconds }),
-  jobStatus:  (job_id) => api.get(`/schedule/job/${job_id}`),
-  get:        (schedule_id) => api.get(`/schedule/${schedule_id}`),
+  jobStatus:     (job_id) => api.get(`/schedule/job/${job_id}`),
+  getByPeriod:   (period_id) => api.get(`/schedule/period/${period_id}`),
+  get:           (schedule_id) => api.get(`/schedule/${schedule_id}`),
   updateCell: (schedule_id, data) => api.patch(`/schedule/${schedule_id}/cell`, data),
   evaluate:   (schedule_id) => api.get(`/schedule/${schedule_id}/evaluate`),
   exportXlsx: (schedule_id) =>

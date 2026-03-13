@@ -1,6 +1,18 @@
 import { useState, useEffect, useRef } from 'react'
-import { scheduleApi, settingsApi } from '../../api/client'
+import { scheduleApi, requestsApi, settingsApi } from '../../api/client'
 import { sc, fmtDate, getWd, getDate, mmdd, WD, NUM_DAYS, WORK_SET, SHIFT_GROUPS } from '../../utils/constants'
+
+const OFF_SET = new Set(['주', 'OFF', 'POFF', '법휴', '수면', '생휴', '휴가', '특휴', '공가', '경가', '보수', '필수', '번표', '병가'])
+
+function isReqMatch(shift, reqCodes, isOr) {
+  if (!shift || !reqCodes?.length) return false
+  if (reqCodes.some(c => c.includes('제외'))) return false
+  for (const c of reqCodes) {
+    if (c === shift) return true
+    if (OFF_SET.has(c) && OFF_SET.has(shift)) return true
+  }
+  return false
+}
 
 function CellEditModal({ nurse, day, startDate, currentShift, onSave, onClose }) {
   const [shift, setShift] = useState(currentShift || '')
@@ -104,6 +116,7 @@ export default function ScheduleResultTab({ period }) {
   const [scheduleId, setScheduleId] = useState(null)
   const [scheduleData, setScheduleData] = useState(null)
   const [nurses, setNurses] = useState([])
+  const [reqMap, setReqMap] = useState({}) // { nurseId: { day: { codes, is_or } } }
   const [evalData, setEvalData] = useState(null)
   const [generating, setGenerating] = useState(false)
   const [loading, setLoading] = useState(true)
@@ -115,8 +128,40 @@ export default function ScheduleResultTab({ period }) {
   const showMsg = (text, ok = true) => { setMsg({ text, ok }); setTimeout(() => setMsg(null), 3000) }
 
   useEffect(() => {
-    if (period) { setSettings(period); setLoading(false) }
-    else { settingsApi.get().then(res => setSettings(res.data)).catch(() => {}).finally(() => setLoading(false)) }
+    const periodId = period?.period_id
+    const loadAll = async () => {
+      setLoading(true)
+      try {
+        const cfg = period || (await settingsApi.get()).data
+        setSettings(cfg)
+        const pid = cfg.period_id
+        if (!pid) return
+        // 기존 근무표 + 신청 병렬 로드
+        const [schedRes, reqRes] = await Promise.allSettled([
+          scheduleApi.getByPeriod(pid),
+          requestsApi.getAll(pid),
+        ])
+        if (schedRes.status === 'fulfilled') {
+          const d = schedRes.value.data
+          setScheduleId(d.id)
+          setScheduleData(d.schedule_data)
+          setNurses(d.nurses)
+        }
+        if (reqRes.status === 'fulfilled') {
+          const map = {}
+          for (const r of reqRes.value.data) {
+            const nid = r.nurse_id
+            const day = r.day
+            if (!map[nid]) map[nid] = {}
+            if (!map[nid][day]) map[nid][day] = { codes: [], is_or: r.is_or }
+            map[nid][day].codes.push(r.code)
+          }
+          setReqMap(map)
+        }
+      } catch {}
+      finally { setLoading(false) }
+    }
+    loadAll()
   }, [period?.period_id])
 
   useEffect(() => {
@@ -129,6 +174,7 @@ export default function ScheduleResultTab({ period }) {
           clearInterval(pollRef.current)
           setScheduleId(res.data.schedule_id)
           loadSchedule(res.data.schedule_id)
+          if (settings?.period_id) loadRequests(settings.period_id)
         } else if (res.data.status === 'failed') {
           clearInterval(pollRef.current)
           showMsg('근무표 생성 실패: ' + (res.data.error_msg || ''), false)
@@ -146,6 +192,20 @@ export default function ScheduleResultTab({ period }) {
       setNurses(res.data.nurses)
       setGenerating(false)
     } catch { showMsg('결과 로드 실패', false); setGenerating(false) }
+  }
+
+  const loadRequests = async (pid) => {
+    try {
+      const res = await requestsApi.getAll(pid)
+      const map = {}
+      for (const r of res.data) {
+        const nid = r.nurse_id; const day = r.day
+        if (!map[nid]) map[nid] = {}
+        if (!map[nid][day]) map[nid][day] = { codes: [], is_or: r.is_or }
+        map[nid][day].codes.push(r.code)
+      }
+      setReqMap(map)
+    } catch {}
   }
 
   const handleGenerate = async () => {
@@ -327,11 +387,14 @@ export default function ScheduleResultTab({ period }) {
                       const st = s ? sc(s) : null
                       const wd = getWd(startDate, d)
                       const isSat = wd === 5, isSun = wd === 6
+                      const req = reqMap[nurse.id]?.[d]
+                      const matched = req && isReqMatch(s, req.codes, req.is_or)
+                      const cellBg = matched ? '#fef9c3' : isSun ? '#fef2f2' : isSat ? '#eff6ff' : undefined
                       return (
                         <td key={d}
                           onClick={() => scheduleId && setEditCell({ nurseId: nurse.id, nurseObj: nurse, day: d })}
                           className="text-center p-0.5 border-b border-r border-slate-100 cursor-pointer transition-colors"
-                          style={{ background: isSun ? '#fef2f2' : isSat ? '#eff6ff' : undefined }}>
+                          style={{ background: cellBg }}>
                           {s ? (
                             <span className="inline-flex items-center justify-center rounded font-semibold"
                               style={{ background: st.bg, color: st.fg, border: `1px solid ${st.border}`, fontSize: 11, minWidth: 34, height: 22 }}>
