@@ -4,4 +4,4 @@ services:
     runtime: python
     rootDir: .
     buildCommand: uv sync --project backend --frozen && uv cache prune --ci
-    startCommand: uv run --project backend uvicorn main:app --host 0.0.0.0 --port $PORT
+    startCommand: uv run --project backend uvicorn backend.main:app --host 0.0.0.0 --port $PORT
