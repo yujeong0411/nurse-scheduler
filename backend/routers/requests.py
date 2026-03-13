@@ -21,6 +21,7 @@ def _row_to_out(row: dict) -> RequestOut:
         day=row["day"],
         code=row["code"],
         is_or=row.get("is_or", False),
+        note=row.get("note") or '',
         submitted_at=str(row.get("submitted_at", "")),
     )
 
@@ -96,13 +97,17 @@ def upsert_requests(
     if not period:
         raise HTTPException(404, "해당 기간을 찾을 수 없습니다.")
 
-    # 마감일 체크 (간호사만)
+    # 마감 시간 체크 (간호사만)
     if current["role"] == "nurse" and period.get("deadline"):
-        from datetime import date
-        today = date.today()
-        deadline = date.fromisoformat(period["deadline"])
-        if today > deadline:
-            raise HTTPException(403, "신청 마감이 지났습니다.")
+        dl_str = period["deadline"]
+        try:
+            dl_dt = datetime.fromisoformat(dl_str if "T" in dl_str else dl_str + "T23:59")
+            if datetime.now() > dl_dt:
+                raise HTTPException(403, "신청 마감이 지났습니다.")
+        except HTTPException:
+            raise
+        except Exception:
+            pass
 
     now_iso = datetime.utcnow().isoformat()
 
@@ -119,6 +124,7 @@ def upsert_requests(
             "day": item.day,
             "code": item.code,
             "is_or": item.is_or,
+            "note": item.note or '',
             "submitted_at": now_iso,
         }
         for item in body.items
@@ -129,7 +135,7 @@ def upsert_requests(
 
 @router.get("/{period_id}/export")
 def export_requests_excel(period_id: str, _: dict = Depends(get_current_admin)):
-    """신청현황 xlsx 다운로드 — prototype handleExport 로직 서버 이전"""
+    """신청현황 xlsx 다운로드 — request_example 포맷"""
     db = get_db()
     period = get_period_by_id(db, period_id)
     if not period:
@@ -138,98 +144,138 @@ def export_requests_excel(period_id: str, _: dict = Depends(get_current_admin)):
     nurses = db_nurses(db).order("sort_order").execute().data
     req_res = db.table("requests").select("*").eq("period_id", period_id).execute().data
 
-    # nurse_id → {day: code} 맵 구성
-    req_map: dict[str, dict[int, str]] = {n["id"]: {} for n in nurses}
-    submitted_at_map: dict[str, str] = {}
+    # 부서명 조회
+    try:
+        dept_res = db.table("departments").select("name").eq("id", settings.department_id).single().execute()
+        dept_name = dept_res.data.get("name", "") if dept_res.data else ""
+    except Exception:
+        dept_name = ""
+
+    # nurse_id → {day: {codes: [...], note: str}} 맵
+    req_map: dict[str, dict[int, dict]] = {n["id"]: {} for n in nurses}
     for r in req_res:
         nid = r["nurse_id"]
-        req_map.setdefault(nid, {})[r["day"]] = r["code"]
-        submitted_at_map.setdefault(nid, str(r.get("submitted_at", "")))
+        day = r["day"]
+        code = r["code"]
+        is_or = r.get("is_or", False)
+        note = r.get("note") or ""
+        if day not in req_map.setdefault(nid, {}):
+            req_map[nid][day] = {"codes": [], "note": note}
+        req_map[nid][day]["codes"].append((code, is_or))
+        if note:
+            req_map[nid][day]["note"] = note
 
     from openpyxl import Workbook
-    from openpyxl.styles import PatternFill, Font, Alignment
+    from openpyxl.styles import PatternFill, Font, Alignment, Border, Side
+    from openpyxl.utils import get_column_letter
     from datetime import date, timedelta
 
     start = date.fromisoformat(period["start_date"])
+    end = start + timedelta(days=27)
     WD = ["월", "화", "수", "목", "금", "토", "일"]
+    NUM_DAYS = 28
 
     wb = Workbook()
     ws = wb.active
     ws.title = "근무신청현황"
 
-    # 헤더
-    header = ["이름", "역할", "직급"]
-    for i in range(28):
+    YELLOW_FILL = PatternFill("solid", fgColor="fcfb92")
+    WEEKEND_FILL = PatternFill("solid", fgColor="F2F2F2")
+    HEADER_FILL = PatternFill("solid", fgColor="D9D9D9")
+    TITLE_FILL = PatternFill("solid", fgColor="4472C4")
+    CENTER = Alignment(horizontal="center", vertical="center")
+    BLACK_BORDER = Border(
+        left=Side(style="thin", color="000000"),
+        right=Side(style="thin", color="000000"),
+        top=Side(style="thin", color="000000"),
+        bottom=Side(style="thin", color="000000"),
+    )
+
+    def apply_border(cell):
+        cell.border = BLACK_BORDER
+
+    # ── 행1: 타이틀 (병합)
+    total_cols = NUM_DAYS + 1  # 이름 열 + 날짜 열
+    title_text = f"{start.strftime('%Y.%m.%d')} ~ {end.strftime('%Y.%m.%d')}  {dept_name} 근무신청표"
+    ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=total_cols)
+    title_cell = ws.cell(1, 1, title_text)
+    title_cell.font = Font(bold=True, size=12, color="FFFFFF")
+    title_cell.fill = TITLE_FILL
+    title_cell.alignment = CENTER
+    ws.row_dimensions[1].height = 22
+
+    # ── 행2: 날짜
+    c0 = ws.cell(2, 1, "")
+    c0.fill = HEADER_FILL; apply_border(c0)
+    for i in range(NUM_DAYS):
         d = start + timedelta(days=i)
-        wd = WD[d.weekday()]
-        header.append(f"{d.month}/{d.day}({wd})")
-    header.append("제출일시")
-    ws.append(header)
+        wd = d.weekday()
+        cell = ws.cell(2, i + 2, f"{d.day}일")
+        cell.alignment = CENTER
+        cell.font = Font(bold=True, size=9, color="CC0000" if wd >= 5 else "000000")
+        cell.fill = WEEKEND_FILL if wd >= 5 else HEADER_FILL
+        apply_border(cell)
 
-    blue_fill  = PatternFill("solid", fgColor="1D4ED8")
-    yellow_fill = PatternFill("solid", fgColor="FFFF00")
-    gray_fill   = PatternFill("solid", fgColor="C0C0C0")
-    white_font  = Font(color="FFFFFF", bold=True)
-    bold_font   = Font(bold=True)
+    # ── 행3: 이름 헤더 + 요일
+    c1 = ws.cell(3, 1, "이름")
+    c1.font = Font(bold=True); c1.alignment = CENTER; c1.fill = HEADER_FILL; apply_border(c1)
+    for i in range(NUM_DAYS):
+        d = start + timedelta(days=i)
+        wd = d.weekday()
+        cell = ws.cell(3, i + 2, WD[wd])
+        cell.alignment = CENTER
+        cell.font = Font(size=9, color="CC0000" if wd >= 5 else "333333")
+        cell.fill = WEEKEND_FILL if wd >= 5 else HEADER_FILL
+        apply_border(cell)
 
-    for cell in ws[1]:
-        cell.fill = blue_fill
-        cell.font = white_font
-        cell.alignment = Alignment(horizontal="center")
-
+    # ── 행4+: 간호사별
     for nurse in nurses:
-        row_data = [nurse["name"], nurse.get("role", ""), nurse.get("grade", "")]
-        shifts = req_map.get(nurse["id"], {})
-        fixed_wd = nurse.get("fixed_weekly_off")
+        row_idx = ws.max_row + 1
+        shifts_raw = req_map.get(nurse["id"], {})
 
-        for i in range(28):
-            d = start + timedelta(days=i)
-            wd_idx = d.weekday()
+        nc = ws.cell(row_idx, 1, nurse["name"])
+        nc.alignment = CENTER; apply_border(nc)
+
+        for i in range(NUM_DAYS):
             day = i + 1
-            shift = shifts.get(day, "")
-            is_fixed = (fixed_wd is not None and wd_idx == fixed_wd)
-            if not shift and is_fixed:
-                shift = "주"
-            row_data.append(shift)
+            d = start + timedelta(days=i)
+            wd = d.weekday()
+            col = i + 2
+            cell = ws.cell(row_idx, col)
 
-        sub_at = submitted_at_map.get(nurse["id"], "")
-        if sub_at:
-            try:
-                sub_at = datetime.fromisoformat(sub_at).strftime("%Y-%m-%d %H:%M")
-            except Exception:
-                pass
-        row_data.append(sub_at or "미제출")
-        ws.append(row_data)
+            entry = shifts_raw.get(day)
+            if entry:
+                codes = entry["codes"]
+                note = entry.get("note", "")
+                or_entries = [c for c, is_or in codes if is_or]
+                non_or = [c for c, is_or in codes if not is_or]
+                if or_entries:
+                    cell.value = "/".join(or_entries)
+                else:
+                    cell.value = non_or[0] if non_or else ""
+                cell.fill = YELLOW_FILL
+                cell.alignment = CENTER
+                if note:
+                    from openpyxl.comments import Comment
+                    cell.comment = Comment(note, "간호사")
+            else:
+                cell.value = ""
+                if wd >= 5:
+                    cell.fill = WEEKEND_FILL
+                cell.alignment = CENTER
+            apply_border(cell)
 
-        # 셀 스타일
-        row_idx = ws.max_row
-        for col in range(4, 4 + 28):
-            cell = ws.cell(row=row_idx, column=col)
-            day = col - 3
-            d = start + timedelta(days=day - 1)
-            wd_idx = d.weekday()
-            is_fixed = (fixed_wd is not None and wd_idx == fixed_wd)
-            shift = shifts.get(day, "")
-            if is_fixed and not shift:
-                cell.fill = gray_fill
-            elif cell.value and cell.value != "주":
-                cell.fill = yellow_fill
-                cell.font = bold_font
-
-    # 열 너비 조정
-    ws.column_dimensions["A"].width = 10
-    ws.column_dimensions["B"].width = 10
-    ws.column_dimensions["C"].width = 8
-    for col in range(4, 4 + 28):
-        ws.column_dimensions[ws.cell(1, col).column_letter].width = 7
-    ws.column_dimensions[ws.cell(1, 4 + 28).column_letter].width = 18
+    # ── 열 너비
+    ws.column_dimensions["A"].width = 12
+    for i in range(NUM_DAYS):
+        ws.column_dimensions[get_column_letter(i + 2)].width = 6
 
     buf = io.BytesIO()
     wb.save(buf)
     buf.seek(0)
 
     from urllib.parse import quote
-    filename = f"신청현황_{period['start_date']}.xlsx"
+    filename = f"{start.strftime('%Y.%m.%d')}~{end.strftime('%Y.%m.%d')}_신청표.xlsx"
     encoded = quote(filename, safe='')
     return StreamingResponse(
         buf,

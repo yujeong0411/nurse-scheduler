@@ -2,34 +2,42 @@ import { useState, useEffect } from 'react'
 import { nursesApi, authApi } from '../../api/client'
 
 const WD_OPTS = ['월', '화', '수', '목', '금', '토', '일']
+const ROLE_OPTS = ['', '책임만', '외상', '혼자 관찰불가', '혼자 관찰', '급성구역', '준급성', '격리구역', '중2']
+const GRADE_OPTS = ['', '책임', '서브차지']
 
 function NurseForm({ initial, onSave, onCancel }) {
   const [form, setForm] = useState(initial || {
     name: '', role: '', grade: '', is_pregnant: false, is_male: false,
     is_4day_week: false, fixed_weekly_off: null, vacation_days: 0,
-    prev_month_n: 0, note: ''
+    prev_month_n: 0, pending_sleep: false, menstrual_used: false, note: ''
   })
   const set = (k, v) => setForm(p => ({ ...p, [k]: v }))
 
   return (
     <div className="bg-slate-50 rounded-2xl p-4 border border-slate-200 space-y-4">
       <div className="grid grid-cols-2 gap-3">
-        {[
-          ['이름 *', 'name', 'text', '이름'],
-          ['역할 (비고1)', 'role', 'text', '중2, 책임만 ...'],
-          ['직급 (비고2)', 'grade', 'text', '책임, 서브차지 ...'],
-        ].map(([lbl, key, type, ph]) => (
-          <div key={key} className={key === 'name' ? 'col-span-2' : ''}>
-            <label className="label">{lbl}</label>
-            <input
-              type={type}
-              value={form[key]}
-              onChange={e => set(key, e.target.value)}
-              placeholder={ph}
-              className="input"
-            />
-          </div>
-        ))}
+        <div className="col-span-2">
+          <label className="label">이름 *</label>
+          <input
+            type="text"
+            value={form.name}
+            onChange={e => set('name', e.target.value)}
+            placeholder="이름"
+            className="input"
+          />
+        </div>
+        <div>
+          <label className="label">역할</label>
+          <select value={form.role} onChange={e => set('role', e.target.value)} className="input">
+            {ROLE_OPTS.map(o => <option key={o} value={o}>{o || '없음'}</option>)}
+          </select>
+        </div>
+        <div>
+          <label className="label">직급</label>
+          <select value={form.grade} onChange={e => set('grade', e.target.value)} className="input">
+            {GRADE_OPTS.map(o => <option key={o} value={o}>{o || '없음'}</option>)}
+          </select>
+        </div>
 
         <div>
           <label className="label">고정 주휴</label>
@@ -47,6 +55,7 @@ function NurseForm({ initial, onSave, onCancel }) {
           <label className="label">휴가 잔여</label>
           <input type="number" min={0} value={form.vacation_days}
             onChange={e => set('vacation_days', parseInt(e.target.value) || 0)}
+            onFocus={e => e.target.select()}
             className="input" />
         </div>
 
@@ -54,6 +63,7 @@ function NurseForm({ initial, onSave, onCancel }) {
           <label className="label">전월 N</label>
           <input type="number" min={0} value={form.prev_month_n}
             onChange={e => set('prev_month_n', parseInt(e.target.value) || 0)}
+            onFocus={e => e.target.select()}
             className="input" />
         </div>
 
@@ -68,6 +78,8 @@ function NurseForm({ initial, onSave, onCancel }) {
           ['is_pregnant', '임산부'],
           ['is_male', '남성'],
           ['is_4day_week', '주4일'],
+          ['pending_sleep', '수면이월'],
+          ['menstrual_used', '생휴사용'],
         ].map(([k, label]) => (
           <label key={k} className="flex items-center gap-2 cursor-pointer select-none">
             <div
@@ -98,6 +110,7 @@ export default function NurseManagementTab() {
   const [editing, setEditing] = useState(null)
   const [msg, setMsg] = useState({ text: '', ok: true })
   const [pinReset, setPinReset] = useState({})
+  const [applying, setApplying] = useState(false)
 
   const load = () => {
     nursesApi.list().then(res => setNurses(res.data)).catch(() => {}).finally(() => setLoading(false))
@@ -139,6 +152,30 @@ export default function NurseManagementTab() {
     e.target.value = ''
   }
 
+  const handleApplyPrevDB = async () => {
+    if (!window.confirm('DB의 가장 최근 근무표에서 전월N·수면이월·생휴·휴가잔여를 자동 반영합니다.\n계속하시겠습니까?')) return
+    setApplying(true)
+    try {
+      const res = await nursesApi.applyPrevSchedule()
+      showMsg(`✓ ${res.data.summary}`); load()
+    } catch (err) {
+      showMsg(err.response?.data?.detail || '자동 반영 실패', false)
+    } finally { setApplying(false) }
+  }
+
+  const handleApplyPrevExcel = async (e) => {
+    const file = e.target.files[0]
+    if (!file) return
+    setApplying(true)
+    try {
+      const res = await nursesApi.importPrevExcel(file)
+      showMsg(`✓ ${res.data.summary}`); load()
+    } catch (err) {
+      showMsg(err.response?.data?.detail || '엑셀 반영 실패', false)
+    } finally { setApplying(false) }
+    e.target.value = ''
+  }
+
   if (loading) return (
     <div className="flex items-center justify-center py-20 text-slate-400 gap-2 text-sm">
       <div className="w-4 h-4 border-2 border-slate-200 border-t-slate-400 rounded-full animate-spin" />
@@ -147,8 +184,8 @@ export default function NurseManagementTab() {
   )
 
   return (
-    <div className="p-2 sm:p-4 space-y-4 max-w-2xl mx-auto">
-      {/* 액션 바 */}
+    <div className="p-2 sm:p-4 md:p-6 space-y-4 w-full max-w-5xl mx-auto">
+      {/* 간호사 관리 버튼 */}
       <div className="flex gap-2">
         <button onClick={() => setEditing('new')} className="btn-primary flex-1 text-sm flex items-center justify-center gap-2">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
@@ -161,9 +198,54 @@ export default function NurseManagementTab() {
             <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
             <polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/>
           </svg>
-          엑셀 가져오기
+          규칙 엑셀
           <input type="file" accept=".xlsx,.xls" className="hidden" onChange={handleExcelImport} />
         </label>
+      </div>
+
+      {/* 이전 근무 반영 */}
+      <div className="card overflow-hidden">
+        <div className="px-4 py-2.5 bg-red-50 border-b border-red-200">
+          <p className="text-xs font-semibold text-slate-700">이전 근무 반영 (전월N · 수면이월 · 생휴 · 휴가잔여)</p>
+          <div className="flex items-center gap-1 mt-0.5">
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#dc2626" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
+              <line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>
+            </svg>
+            <p className="text-xs font-bold text-red-600">새 근무표 생성 전에 반드시 실행하세요</p>
+          </div>
+        </div>
+        <div className="p-3 flex gap-2">
+          <button
+            onClick={handleApplyPrevDB}
+            disabled={applying}
+            className="flex-1 text-sm py-2.5 rounded-xl font-semibold flex items-center justify-center gap-2 transition-colors disabled:opacity-50"
+            style={{ background: '#EFF6FF', color: '#1D4ED8', border: '1.5px solid #BFDBFE' }}>
+            {applying ? (
+              <span className="flex items-center gap-2">
+                <div className="w-3.5 h-3.5 border-2 border-blue-300 border-t-blue-600 rounded-full animate-spin" />
+                처리 중...
+              </span>
+            ) : (
+              <>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 .49-3.36"/>
+                </svg>
+                DB 자동 반영
+              </>
+            )}
+          </button>
+          <label
+            className="flex-1 text-sm py-2.5 rounded-xl font-semibold flex items-center justify-center gap-2 cursor-pointer transition-colors"
+            style={{ background: '#F0FDF4', color: '#15803D', border: '1.5px solid #86EFAC' }}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+              <polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/>
+            </svg>
+            엑셀에서 반영
+            <input type="file" accept=".xlsx,.xls" className="hidden" onChange={handleApplyPrevExcel} disabled={applying} />
+          </label>
+        </div>
       </div>
 
       {/* 메시지 */}

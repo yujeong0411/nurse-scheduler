@@ -1,7 +1,8 @@
 """FastAPI 앱 진입점"""
 import sys
 import os
-from datetime import datetime, timezone
+from contextlib import asynccontextmanager
+from datetime import datetime, timezone, timedelta
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -12,7 +13,29 @@ if _root not in sys.path:
 
 from .routers import auth, nurses, rules, settings, requests, schedule, export, holidays
 
-app = FastAPI(title="NurseScheduler API", version="1.0.0")
+# 보존 기간 (일) — 변경 시 이 값만 수정
+_KEEP_DAYS = 180  # 6개월
+
+
+def _cleanup_old_periods():
+    """시작일 기준 KEEP_DAYS 이상 지난 period 삭제 (CASCADE로 연관 데이터 함께 삭제)"""
+    try:
+        from .database import get_db
+        from .config import settings as cfg
+        db = get_db()
+        cutoff = (datetime.now(timezone.utc) - timedelta(days=_KEEP_DAYS)).date().isoformat()
+        db.table("periods").delete().eq("department_id", cfg.department_id).lt("start_date", cutoff).execute()
+    except Exception:
+        pass  # 정리 실패 시 서버 시작은 계속
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    _cleanup_old_periods()
+    yield
+
+
+app = FastAPI(title="NurseScheduler API", version="1.0.0", lifespan=lifespan)
 
 # CORS — Vercel 도메인 + 로컬 개발
 app.add_middleware(

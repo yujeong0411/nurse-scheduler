@@ -3,11 +3,11 @@ import io
 import sys
 import os
 import tempfile
-from fastapi import APIRouter, HTTPException, UploadFile, File, Depends
-from ..database import get_db, db_nurses
+from fastapi import APIRouter, HTTPException, UploadFile, File, Depends, Query
+from ..database import get_db, db_nurses, db_rules, db_periods, get_active_period
 from ..auth import hash_password
 from ..deps import get_current_admin, get_current_nurse
-from ..schemas import NurseCreate, NurseUpdate, NurseOut
+from ..schemas import NurseCreate, NurseUpdate, NurseOut, ApplyPrevResult
 from ..config import settings
 
 router = APIRouter(prefix="/nurses", tags=["간호사"])
@@ -85,6 +85,218 @@ def delete_nurse(nurse_id: str, _: dict = Depends(get_current_admin)):
     return {"message": "삭제되었습니다."}
 
 
+@router.post("/apply-prev-schedule", response_model=ApplyPrevResult)
+def apply_prev_schedule(
+    schedule_id: str | None = Query(default=None),
+    _: dict = Depends(get_current_admin),
+):
+    """이전 근무표(DB)에서 prev_tail_shifts, prev_month_N, pending_sleep, menstrual_used, vacation_days 자동 계산 후 업데이트"""
+    root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    if root not in sys.path:
+        sys.path.insert(0, root)
+    from engine.models import is_pair_first_month
+    from datetime import date, timedelta
+
+    db = get_db()
+
+    # 이전 스케줄 찾기
+    if schedule_id:
+        sched_res = db.table("schedules").select("*").eq("id", schedule_id).single().execute()
+        if not sched_res.data:
+            raise HTTPException(404, "스케줄을 찾을 수 없습니다.")
+        sched = sched_res.data
+        from ..database import get_period_by_id
+        period = get_period_by_id(db, sched["period_id"])
+    else:
+        # 현 부서의 가장 최근 완료 스케줄
+        periods_res = db_periods(db).order("start_date", desc=True).execute()
+        sched = None
+        period = None
+        for p in periods_res.data:
+            s = (db.table("schedules").select("*")
+                 .eq("period_id", p["id"])
+                 .order("created_at", desc=True)
+                 .limit(1).execute())
+            if s.data:
+                sched = s.data[0]
+                period = p
+                break
+        if not sched:
+            raise HTTPException(404, "이전 근무표가 없습니다. 근무표를 먼저 생성해주세요.")
+
+    # 현재(신규) 기간 시작일 — menstrual_used 판단 기준
+    active_period = get_active_period(db)
+    new_start_date = (
+        date.fromisoformat(active_period["start_date"])
+        if active_period and active_period.get("start_date") else None
+    )
+
+    prev_start = date.fromisoformat(period["start_date"])
+    prev_month = prev_start.month
+    schedule_data = sched.get("schedule_data", {})  # {nurse_uuid: {day_str: shift}}
+
+    # 수면 규칙
+    rules_res = db_rules(db).execute()
+    sleep_n_monthly = rules_res.data[0].get("sleep_n_monthly", 7) if rules_res.data else 7
+
+    nurses_res = db_nurses(db).order("sort_order").execute()
+    TAIL_DAYS = 5
+
+    results = []
+    for nurse in nurses_res.data:
+        nid = nurse["id"]
+        shifts_raw = schedule_data.get(nid, {})
+        all_shifts = {int(d): s for d, s in shifts_raw.items() if s}
+
+        # 1. prev_tail_shifts: 마지막 5일
+        tail_days_keys = sorted(all_shifts.keys())[-TAIL_DAYS:]
+        prev_tail_shifts = [all_shifts[d] for d in tail_days_keys]
+
+        # 2. prev_month_N
+        prev_month_n = sum(1 for s in all_shifts.values() if s == "N")
+
+        # 3. pending_sleep: 홀수 월 + N 기준 충족 + 수면 미사용
+        sleep_used = sum(1 for s in all_shifts.values() if s == "수면")
+        pending_sleep = (
+            is_pair_first_month(prev_month)
+            and prev_month_n >= sleep_n_monthly
+            and sleep_used == 0
+        )
+
+        # 4. menstrual_used: 새 기간 시작 월에 생휴 사용 여부
+        menstrual_used = False
+        if new_start_date:
+            for day_int, shift in all_shifts.items():
+                if shift == "생휴":
+                    actual = prev_start + timedelta(days=day_int - 1)
+                    if actual.year == new_start_date.year and actual.month == new_start_date.month:
+                        menstrual_used = True
+                        break
+
+        # 5. vacation_days: 현재값 - 사용한 휴가 수
+        휴가_used = sum(1 for s in all_shifts.values() if s == "휴가")
+        new_vacation_days = max(0, nurse.get("vacation_days", 0) - 휴가_used)
+
+        update_data = {
+            "prev_tail_shifts": prev_tail_shifts,
+            "prev_month_n": prev_month_n,
+            "pending_sleep": pending_sleep,
+            "menstrual_used": menstrual_used,
+            "vacation_days": new_vacation_days,
+        }
+        res = db_nurses(db).update(update_data).eq("id", nid).execute()
+        if res.data:
+            results.append(_row_to_out(res.data[0]))
+
+    return ApplyPrevResult(
+        nurses=results,
+        summary=f"{len(results)}명 업데이트 완료 (전월N·수면이월·생휴·휴가잔여 자동 반영)",
+    )
+
+
+@router.post("/import-prev-excel", response_model=ApplyPrevResult)
+def import_prev_excel(
+    file: UploadFile = File(...),
+    _: dict = Depends(get_current_admin),
+):
+    """이전 달 근무표 엑셀에서 prev_tail_shifts, prev_month_N, pending_sleep, menstrual_used, vacation_days 업데이트"""
+    root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    if root not in sys.path:
+        sys.path.insert(0, root)
+    from engine.models import is_pair_first_month
+    from engine.excel_io import import_prev_schedule, detect_file_month, import_prev_menstrual
+    from datetime import date
+
+    db = get_db()
+
+    # 현재(신규) 기간 시작일
+    active_period = get_active_period(db)
+    new_start_date = (
+        date.fromisoformat(active_period["start_date"])
+        if active_period and active_period.get("start_date") else None
+    )
+
+    content = file.file.read()
+    tmp = tempfile.NamedTemporaryFile(suffix=".xlsx", delete=False)
+    tmp.write(content)
+    tmp.close()  # Windows 파일 잠금 해제 후 openpyxl 접근
+    tmp_path = tmp.name
+
+    try:
+        nurses_res = db_nurses(db).order("sort_order").execute()
+        nurse_names = [n["name"] for n in nurses_res.data]
+
+        TAIL_DAYS = 5
+        tail_result, n_counts, sleep_counts, vac_days = import_prev_schedule(
+            tmp_path, nurse_names, TAIL_DAYS
+        )
+
+        # 이전 근무표 시작일 탐지 (생휴 월 계산용)
+        year, month = detect_file_month(tmp_path)
+        prev_start_date = date(year, month, 1) if year and month else None
+
+        # 생휴 월별 집계
+        menstrual_counts = (
+            import_prev_menstrual(tmp_path, nurse_names, prev_start_date)
+            if prev_start_date else {}
+        )
+
+        # 수면 규칙
+        rules_res = db_rules(db).execute()
+        sleep_n_monthly = rules_res.data[0].get("sleep_n_monthly", 7) if rules_res.data else 7
+
+    except Exception as e:
+        os.unlink(tmp_path)
+        raise HTTPException(400, f"엑셀 파싱 실패: {e}")
+    finally:
+        try:
+            os.unlink(tmp_path)
+        except Exception:
+            pass
+
+    prev_month = prev_start_date.month if prev_start_date else 1
+
+    results = []
+    for nurse in nurses_res.data:
+        name = nurse["name"]
+        if name not in tail_result:
+            continue  # 매칭 안 된 간호사 스킵
+
+        prev_month_n = n_counts.get(name, 0)
+        sleep_used = sleep_counts.get(name, 0)
+
+        pending_sleep = (
+            is_pair_first_month(prev_month)
+            and prev_month_n >= sleep_n_monthly
+            and sleep_used == 0
+        )
+
+        menstrual_used = False
+        if new_start_date and name in menstrual_counts:
+            menstrual_used = menstrual_counts[name].get(new_start_date.month, 0) > 0
+
+        # vacation_days: 엑셀의 휴가잔여 열 우선, 없으면 기존값 유지
+        new_vac = vac_days.get(name, nurse.get("vacation_days", 0))
+
+        update_data = {
+            "prev_tail_shifts": tail_result[name],
+            "prev_month_n": prev_month_n,
+            "pending_sleep": pending_sleep,
+            "menstrual_used": menstrual_used,
+            "vacation_days": new_vac,
+        }
+        res = db_nurses(db).update(update_data).eq("id", nurse["id"]).execute()
+        if res.data:
+            results.append(_row_to_out(res.data[0]))
+
+    matched = len(results)
+    total = len(nurses_res.data)
+    return ApplyPrevResult(
+        nurses=results,
+        summary=f"{matched}/{total}명 엑셀에서 업데이트 완료",
+    )
+
+
 @router.post("/import-excel", response_model=list[NurseOut])
 def import_nurses_excel(file: UploadFile = File(...), _: dict = Depends(get_current_admin)):
     """근무표_규칙.xlsx → 간호사 목록 upsert"""
@@ -96,16 +308,20 @@ def import_nurses_excel(file: UploadFile = File(...), _: dict = Depends(get_curr
     from engine.excel_io import import_nurse_rules
 
     content = file.file.read()
-    with tempfile.NamedTemporaryFile(suffix=".xlsx", delete=False) as tmp:
-        tmp.write(content)
-        tmp_path = tmp.name
+    tmp = tempfile.NamedTemporaryFile(suffix=".xlsx", delete=False)
+    tmp.write(content)
+    tmp.close()  # Windows 파일 잠금 해제
+    tmp_path = tmp.name
 
     try:
         engine_nurses = import_nurse_rules(tmp_path)
     except Exception as e:
         raise HTTPException(400, f"엑셀 파싱 실패: {e}")
     finally:
-        os.unlink(tmp_path)
+        try:
+            os.unlink(tmp_path)
+        except Exception:
+            pass
 
     db = get_db()
     # 기존 간호사 이름→UUID 맵

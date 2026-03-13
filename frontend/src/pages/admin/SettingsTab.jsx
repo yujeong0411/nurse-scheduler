@@ -48,11 +48,11 @@ function ToggleRow({ label, desc, value, onChange }) {
   )
 }
 
-export default function SettingsTab() {
+export default function SettingsTab({ period, onPeriodSaved }) {
   const [sd, setSd] = useState('')
   const [dl, setDl] = useState('')
   const [rules, setRules] = useState(null)
-  const [holidayText, setHolidayText] = useState('')  // 자유 입력용 local state
+  const [holidayText, setHolidayText] = useState('')
   const [scheduleMsg, setScheduleMsg] = useState({ text: '', ok: true })
   const [rulesMsg, setRulesMsg] = useState({ text: '', ok: true })
   const [loading, setLoading] = useState(true)
@@ -61,16 +61,21 @@ export default function SettingsTab() {
   const [detectingHolidays, setDetectingHolidays] = useState(false)
 
   useEffect(() => {
-    Promise.all([settingsApi.get(), rulesApi.get()])
-      .then(([sRes, rRes]) => {
-        setSd(sRes.data.start_date || '')
-        setDl(sRes.data.deadline || '')
+    rulesApi.get()
+      .then(rRes => {
         setRules(rRes.data)
         setHolidayText((rRes.data.public_holidays || []).join(', '))
       })
       .catch(() => {})
       .finally(() => setLoading(false))
   }, [])
+
+  // period prop이 바뀌면 날짜/마감 동기화 (datetime-local은 "YYYY-MM-DDTHH:MM" 형식 필요)
+  useEffect(() => {
+    setSd(period?.start_date || '')
+    const dl = period?.deadline || ''
+    setDl(dl ? dl.substring(0, 16) : '')
+  }, [period?.id])
 
   const setVal = (k, v) => setRules(p => ({ ...p, [k]: v }))
 
@@ -80,6 +85,7 @@ export default function SettingsTab() {
     try {
       await settingsApi.update({ start_date: sd, deadline: dl || null })
       setScheduleMsg({ text: '저장되었습니다', ok: true })
+      onPeriodSaved?.(sd)
     } catch (e) {
       setScheduleMsg({ text: e.response?.data?.detail || '저장 실패', ok: false })
     } finally {
@@ -159,7 +165,7 @@ export default function SettingsTab() {
   )
 
   return (
-    <div className="p-2 sm:p-4 space-y-4 max-w-2xl mx-auto">
+    <div className="p-2 sm:p-4 md:p-6 space-y-4 w-full max-w-5xl mx-auto">
 
       {/* 일정 카드 */}
       <div className="card overflow-hidden">
@@ -183,14 +189,14 @@ export default function SettingsTab() {
             )}
           </div>
           <div>
-            <label className="label">신청 마감일 <span className="normal-case text-slate-300 font-normal ml-1">(선택)</span></label>
-            <input type="date" value={dl} onChange={e => setDl(e.target.value)} className="input" />
+            <label className="label">신청 마감 일시 <span className="normal-case text-slate-300 font-normal ml-1">(선택)</span></label>
+            <input type="datetime-local" value={dl} onChange={e => setDl(e.target.value)} className="input" />
             {dl && (
               <div className={`mt-2 rounded-xl px-3 py-2 text-sm font-semibold border ${passed ? 'bg-red-50 border-red-200 text-red-600' : 'bg-amber-50 border-amber-200 text-amber-700'}`}>
-                {passed ? '마감됨' : `${fmtDate(dl)} 자정까지`}
+                {passed ? '마감됨' : `${dl.replace('T', ' ')} 까지`}
               </div>
             )}
-            {dl && <button onClick={() => setDl('')} className="mt-1.5 text-xs text-slate-400 hover:text-slate-600 underline">마감일 제거</button>}
+            {dl && <button onClick={() => setDl('')} className="mt-1.5 text-xs text-slate-400 hover:text-slate-600 underline">마감 제거</button>}
           </div>
         </div>
         {scheduleMsg.text && (
@@ -290,9 +296,23 @@ export default function SettingsTab() {
             </div>
             {holidayText && (
               <div className="flex flex-wrap gap-1.5">
-                {holidayText.split(',').map(s => parseInt(s.trim())).filter(n => !isNaN(n) && n >= 1 && n <= 31).map(d => (
-                  <span key={d} className="px-2 py-0.5 bg-orange-50 text-orange-700 border border-orange-200 rounded-full text-xs font-semibold">{d}일</span>
-                ))}
+                {holidayText.split(',').map(s => parseInt(s.trim())).filter(n => !isNaN(n) && n >= 1 && n <= 31).map(dayNum => {
+                  // start_date가 있으면 28일 범위에서 해당 calendar day를 찾아 월 표시
+                  let label = `${dayNum}일`
+                  if (sd) {
+                    const start = new Date(sd)
+                    for (let i = 0; i < 28; i++) {
+                      const d = new Date(start.getTime() + i * 86400000)
+                      if (d.getDate() === dayNum) {
+                        label = `${d.getMonth() + 1}월 ${dayNum}일`
+                        break
+                      }
+                    }
+                  }
+                  return (
+                    <span key={dayNum} className="px-2 py-0.5 bg-orange-50 text-orange-700 border border-orange-200 rounded-full text-xs font-semibold">{label}</span>
+                  )
+                })}
               </div>
             )}
           </div>

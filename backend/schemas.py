@@ -92,6 +92,7 @@ class SettingsOut(BaseModel):
     period_id: str | None = None
     start_date: str | None = None   # "YYYY-MM-DD"
     deadline: str | None = None
+    department_name: str | None = None
 
 class SettingsUpdate(BaseModel):
     start_date: str                 # "YYYY-MM-DD"
@@ -104,6 +105,7 @@ class RequestItem(BaseModel):
     day: int = Field(..., ge=1, le=28)
     code: str
     is_or: bool = False
+    note: str = ''
 
 class RequestOut(RequestItem):
     id: str
@@ -149,6 +151,11 @@ class ScheduleOut(BaseModel):
     score: int | None = None
     grade: str | None = None
     eval_details: dict[str, Any] = {}
+
+class ApplyPrevResult(BaseModel):
+    nurses: list[NurseOut]
+    summary: str
+
 
 class EvaluateOut(BaseModel):
     score: float

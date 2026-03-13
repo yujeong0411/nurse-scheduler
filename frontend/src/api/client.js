@@ -46,12 +46,24 @@ export const nursesApi = {
     const fd = new FormData(); fd.append('file', file)
     return api.post('/nurses/import-excel', fd)
   },
+  applyPrevSchedule: (scheduleId = null) =>
+    api.post('/nurses/apply-prev-schedule', null, {
+      params: scheduleId ? { schedule_id: scheduleId } : {}
+    }),
+  importPrevExcel: (file) => {
+    const fd = new FormData(); fd.append('file', file)
+    return api.post('/nurses/import-prev-excel', fd)
+  },
 }
 
 // ── 설정·규칙 ─────────────────────────────────────
 export const settingsApi = {
-  get:    () => api.get('/settings'),
-  update: (data) => api.put('/settings', data),
+  get:            () => api.get('/settings'),
+  update:         (data) => api.put('/settings', data),
+  listPeriods:    () => api.get('/settings/periods'),
+  getPeriod:      (id) => api.get(`/settings/${id}`),
+  activatePeriod: (id) => api.put(`/settings/${id}/activate`),
+  deletePeriod:   (id) => api.delete(`/settings/${id}`),
 }
 
 export const rulesApi = {

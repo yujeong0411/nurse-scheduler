@@ -61,7 +61,8 @@ CREATE TABLE periods (
     id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     department_id UUID REFERENCES departments(id) ON DELETE CASCADE,
     start_date    DATE NOT NULL,
-    deadline      DATE,
+    deadline      TEXT,          -- "YYYY-MM-DDTHH:MM" 또는 "YYYY-MM-DD" 형식
+    is_active     BOOLEAN DEFAULT FALSE,  -- 간호사에게 표시할 기간
     created_at    TIMESTAMPTZ DEFAULT NOW(),
     UNIQUE(department_id, start_date)
 );
@@ -74,6 +75,7 @@ CREATE TABLE requests (
     day          INT NOT NULL CHECK (day BETWEEN 1 AND 28),
     code         TEXT NOT NULL,
     is_or        BOOLEAN DEFAULT FALSE,
+    note         TEXT DEFAULT '',
     submitted_at TIMESTAMPTZ DEFAULT NOW(),
     UNIQUE(period_id, nurse_id, day, code)
 );

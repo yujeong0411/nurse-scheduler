@@ -56,7 +56,7 @@ async def run_solver_job(job_id: str, period_id: str, db) -> None:
         rules_res   = db.table("rules").select("*").execute()
         period_res  = db.table("periods").select("*").eq("id", period_id).single().execute()
 
-        nurses_data   = nurses_res.data
+        nurses_data   = _convert_nurses(nurses_res.data)
         requests_data = _convert_requests(req_res.data, nurses_data)
         rules_data    = _convert_rules(rules_res.data[0] if rules_res.data else {})
         start_date_str = period_res.data["start_date"]
@@ -97,6 +97,17 @@ async def run_solver_job(job_id: str, period_id: str, db) -> None:
 def _get_department_id(db, period_id: str) -> str:
     res = db.table("periods").select("*").eq("id", period_id).single().execute()
     return res.data["department_id"]
+
+
+def _convert_nurses(nurses_data: list[dict]) -> list[dict]:
+    """DB nurses → engine Nurse.from_dict 형식
+    DB는 snake_case 소문자(prev_month_n), engine은 대문자(prev_month_N) 사용"""
+    result = []
+    for n in nurses_data:
+        converted = dict(n)
+        converted["prev_month_N"] = n.get("prev_month_n", 0)
+        result.append(converted)
+    return result
 
 
 def _convert_requests(raw_requests: list[dict], nurses: list[dict]) -> list[dict]:

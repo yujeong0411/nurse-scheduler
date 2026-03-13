@@ -1,10 +1,12 @@
-import { useState } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import useAuthStore from '../../store/auth'
+import { settingsApi } from '../../api/client'
 import SettingsTab from './SettingsTab'
 import NurseManagementTab from './NurseManagementTab'
 import SubmissionsTab from './SubmissionsTab'
 import ScheduleResultTab from './ScheduleResultTab'
+import { fmtDate } from '../../utils/constants'
 
 const TABS = [
   {
@@ -55,29 +57,174 @@ export default function AdminLayout() {
   const navigate = useNavigate()
   const { clearAuth } = useAuthStore()
   const [activeTab, setActiveTab] = useState('settings')
+  const [periods, setPeriods] = useState([])
+  const [selPeriodId, setSelPeriodId] = useState(() => localStorage.getItem('admin_period_id') || null)
+  const [showPeriodPicker, setShowPeriodPicker] = useState(false)
+  const [deptName, setDeptName] = useState('')
+  const pickerRef = useRef(null)
+
+  const loadPeriods = (selectStartDate = null) => {
+    settingsApi.listPeriods()
+      .then(res => {
+        // 만료되지 않은 기간만 표시 (end_date >= 오늘)
+        const today = new Date(); today.setHours(0, 0, 0, 0)
+        const list = res.data.filter(p => {
+          const end = new Date(new Date(p.start_date).getTime() + 27 * 86400000)
+          return end >= today
+        })
+        setPeriods(list)
+        if (list.length > 0) {
+          if (selectStartDate) {
+            // 새로 저장된 기간을 자동 선택
+            const found = list.find(p => p.start_date === selectStartDate)
+            if (found) {
+              setSelPeriodId(found.id)
+              localStorage.setItem('admin_period_id', found.id)
+              return
+            }
+          }
+          // localStorage에 저장된 id가 목록에 없으면 최신으로 초기화
+          const saved = list.find(p => p.id === localStorage.getItem('admin_period_id'))
+          if (!saved) {
+            setSelPeriodId(list[0].id)
+            localStorage.setItem('admin_period_id', list[0].id)
+          }
+        }
+      })
+      .catch(() => {})
+  }
+
+  useEffect(() => {
+    loadPeriods()
+    settingsApi.get().then(res => setDeptName(res.data.department_name || '')).catch(() => {})
+  }, [])
+
+  // 드롭다운 바깥 클릭 닫기
+  useEffect(() => {
+    if (!showPeriodPicker) return
+    const handler = (e) => {
+      if (pickerRef.current && !pickerRef.current.contains(e.target)) {
+        setShowPeriodPicker(false)
+      }
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [showPeriodPicker])
+
+  const selPeriod = periods.find(p => p.id === selPeriodId) || periods[0] || null
+
+  const handleSelectPeriod = (p) => {
+    setSelPeriodId(p.id)
+    localStorage.setItem('admin_period_id', p.id)
+    setShowPeriodPicker(false)
+  }
+
+  const handleActivatePeriod = async (e, p) => {
+    e.stopPropagation()
+    try {
+      await settingsApi.activatePeriod(p.id)
+      loadPeriods()
+    } catch {
+      alert('활성화 실패')
+    }
+  }
+
+  const handleDeletePeriod = async (e, p) => {
+    e.stopPropagation()
+    if (!window.confirm(`${fmtDate(p.start_date)} 기간을 삭제하시겠습니까?\n신청 데이터와 근무표도 함께 삭제됩니다.`)) return
+    try {
+      await settingsApi.deletePeriod(p.id)
+      loadPeriods()
+    } catch {
+      alert('삭제 실패')
+    }
+  }
 
   const handleLogout = () => { clearAuth(); navigate('/') }
+
+  const endDate = selPeriod?.start_date
+    ? new Date(new Date(selPeriod.start_date).getTime() + 27 * 86400000)
+    : null
 
   return (
     <div className="min-h-screen flex flex-col bg-slate-50">
       {/* 헤더 */}
       <header className="bg-white border-b border-slate-200 sticky top-0 z-20">
         <div className="flex items-center justify-between px-4 h-14">
-          <div className="flex items-center gap-3">
-            <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>
-                <polyline points="9 22 9 12 15 12 15 22"/>
-              </svg>
-            </div>
-            <div>
-              <h1 className="font-bold text-slate-900 text-sm leading-none">관리자</h1>
-              <p className="text-slate-400 text-xs mt-0.5">응급실 근무표</p>
-            </div>
+          <div>
+            <h1 className="font-bold text-slate-900 text-sm leading-none">관리자</h1>
+            {deptName && <p className="text-slate-400 text-xs mt-0.5">{deptName}</p>}
           </div>
+
+          {/* 기간 선택기 */}
+          <div ref={pickerRef} className="relative flex-1 flex justify-center px-4">
+            {selPeriod && (
+              <button
+                onClick={() => setShowPeriodPicker(v => !v)}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg hover:bg-slate-50 border border-slate-200 transition-colors"
+              >
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#64748B" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/>
+                  <line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/>
+                </svg>
+                <span className="text-xs font-semibold text-slate-700">
+                  {fmtDate(selPeriod.start_date)}
+                  {endDate && <span className="text-slate-400 font-normal"> ~ {fmtDate(endDate)}</span>}
+                </span>
+                {selPeriod.is_active && (
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 flex-shrink-0" title="간호사에게 표시중" />
+                )}
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#94A3B8" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <polyline points="6 9 12 15 18 9"/>
+                </svg>
+              </button>
+            )}
+            {showPeriodPicker && periods.length > 0 && (
+              <div className="absolute top-full mt-1 bg-white border border-slate-200 rounded-xl shadow-lg z-50 min-w-64 overflow-hidden">
+                <p className="px-3 pt-2.5 pb-1 text-xs font-semibold text-slate-400">기간 선택 · 간호사에게 표시할 기간을 활성화하세요</p>
+                {periods.map(p => {
+                  const ed = new Date(new Date(p.start_date).getTime() + 27 * 86400000)
+                  const isSelected = p.id === selPeriod?.id
+                  const isActive = p.is_active
+                  return (
+                    <div key={p.id} className={`flex items-center group transition-colors ${isSelected ? 'bg-blue-50' : 'hover:bg-slate-50'}`}>
+                      <button onClick={() => handleSelectPeriod(p)}
+                        className={`flex-1 text-left px-3 py-2 text-sm flex items-center gap-2 ${isSelected ? 'text-blue-700 font-semibold' : 'text-slate-700'}`}>
+                        <span>{fmtDate(p.start_date)} ~ {fmtDate(ed)}</span>
+                        {isActive && (
+                          <span className="px-1.5 py-0.5 bg-emerald-100 text-emerald-700 text-xs font-bold rounded-full">간호사 표시중</span>
+                        )}
+                      </button>
+                      {/* 활성화 버튼 */}
+                      {!isActive && (
+                        <button
+                          onClick={(e) => handleActivatePeriod(e, p)}
+                          className="w-6 h-6 flex items-center justify-center rounded-full text-slate-300 hover:text-emerald-600 hover:bg-emerald-50 opacity-0 group-hover:opacity-100 transition-all flex-shrink-0"
+                          title="간호사에게 이 기간 표시">
+                          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                            <polyline points="20 6 9 17 4 12"/>
+                          </svg>
+                        </button>
+                      )}
+                      {/* 삭제 버튼 */}
+                      <button
+                        onClick={(e) => handleDeletePeriod(e, p)}
+                        className="mr-2 w-6 h-6 flex items-center justify-center rounded-full text-slate-300 hover:text-red-500 hover:bg-red-50 opacity-0 group-hover:opacity-100 transition-all flex-shrink-0"
+                        title="삭제">
+                        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                          <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+                        </svg>
+                      </button>
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+          </div>
+
           <button
             onClick={handleLogout}
-            className="flex items-center gap-1.5 text-slate-500 hover:text-slate-800 text-sm font-medium px-3 py-1.5 rounded-lg hover:bg-slate-100 transition-colors">
+            className="flex items-center gap-1.5 text-slate-500 hover:text-slate-800 text-xs font-medium px-3 py-1.5 rounded-lg hover:bg-slate-100 transition-colors">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>
               <polyline points="16 17 21 12 16 7"/>
@@ -110,11 +257,11 @@ export default function AdminLayout() {
       </header>
 
       {/* 탭 콘텐츠 */}
-      <main className="flex-1">
-        {activeTab === 'settings'    && <SettingsTab />}
+      <main className="flex-1 flex flex-col">
+        {activeTab === 'settings'    && <SettingsTab period={selPeriod} onPeriodSaved={loadPeriods} onSelectPeriod={handleSelectPeriod} />}
         {activeTab === 'nurses'      && <NurseManagementTab />}
-        {activeTab === 'submissions' && <SubmissionsTab />}
-        {activeTab === 'schedule'    && <ScheduleResultTab />}
+        {activeTab === 'submissions' && <SubmissionsTab period={selPeriod ? { ...selPeriod, period_id: selPeriod.id } : null} />}
+        {activeTab === 'schedule'    && <ScheduleResultTab period={selPeriod ? { ...selPeriod, period_id: selPeriod.id } : null} />}
       </main>
     </div>
   )

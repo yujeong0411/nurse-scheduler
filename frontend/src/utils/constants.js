@@ -72,5 +72,8 @@ export function mmdd(d) {
 }
 
 export function dlPassed(dl) {
-  return dl ? new Date() > new Date(dl + "T23:59:59") : false;
+  if (!dl) return false
+  // "YYYY-MM-DDTHH:MM" 형식이면 그대로, "YYYY-MM-DD" 형식이면 자정으로
+  const dt = dl.includes('T') ? new Date(dl) : new Date(dl + 'T23:59:59')
+  return new Date() > dt
 }

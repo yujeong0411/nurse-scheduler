@@ -196,17 +196,19 @@ def validate_requests(
             dt = start_date + timedelta(days=day - 1)
             return f"{dt.month}/{dt.day}"
 
-        # 1. 생휴: 남자 불가, 여성 월 1회
+        # 1. 생휴: 남자 불가, 여성 월 1회 (28일 기간이 2개월에 걸치면 최대 2회)
+        months_in_period = len({(start_date + timedelta(days=di)).month for di in range(num_days)})
+        max_menst = months_in_period - (1 if nurse.menstrual_used else 0)
         menst_reqs = [r for r in hard_reqs if r.code == "생휴"]
         if menst_reqs:
             if nurse.is_male:
                 days = ", ".join(fmt_day(r.day) for r in menst_reqs)
                 warnings.append(f"{nurse.name}: 남자 간호사 생휴 불가 ({days})")
-            elif len(menst_reqs) > 1:
+            elif len(menst_reqs) > max_menst:
                 days = ", ".join(fmt_day(r.day) for r in menst_reqs)
                 warnings.append(
                     f"{nurse.name}: 생휴 {len(menst_reqs)}회 신청 ({days})"
-                    f" → 최대 1회"
+                    f" → 최대 {max_menst}회"
                 )
 
         # 2. OFF 주당 초과 신청
@@ -794,7 +796,7 @@ def solve_schedule(
     
     # 요청 처리
     req_hard_days = set() # 요청 들어온 날짜 기록
-    menst_hard_used = {}  # nurse_id → 생휴 하드 처리 횟수 (최대 1)
+    menst_hard_used = {}  # nurse_id → 생휴 하드 처리 횟수
     off_week_used = {}    # (ni, week_idx) → OFF 하드 처리 횟수 (주당 required_off개 한도)
     for r in requests:
         if not r.is_hard:
@@ -805,13 +807,16 @@ def solve_schedule(
         di = r.day - 1
         if di < 0 or di >= num_days:
             continue
-        # 생휴: 남자 불가, 여성도 월 1회만 하드 처리
+        # 생휴: 남자 불가, 여성은 월별 최대치까지 하드 처리
         if r.code == "생휴":
             if nurses[ni].is_male:
                 continue
+            nurse_obj = nurses[ni]
+            _months = len({(start_date + timedelta(days=d)).month for d in range(num_days)})
+            _max_menst = _months - (1 if nurse_obj.menstrual_used else 0)
             menst_hard_used.setdefault(r.nurse_id, 0)
-            if menst_hard_used[r.nurse_id] >= 1:
-                continue  # 2번째 생휴 요청 → 무시
+            if menst_hard_used[r.nurse_id] >= _max_menst:
+                continue  # 최대치 초과 → 무시
             menst_hard_used[r.nurse_id] += 1
         # 병가 기간 중 주 요청은 무시 (병가 기간은 병가로만 채움)
         if r.code == "주" and in_병가_span(ni, di):
@@ -1016,13 +1021,16 @@ def solve_schedule(
             )
 
         # 생휴: 여성 월 1회 (하드 제약), 남자 0
+        # 28일 기간이 2개월에 걸치면 최대 2회, menstrual_used=True면 첫 달은 이미 사용됨
+        _period_months = len({(start_date + timedelta(days=di)).month for di in range(num_days)})
+        max_menst = max(0, _period_months - (1 if nurse.menstrual_used else 0))
         menst_sum = sum(shifts[(ni, di, _생휴)] for di in range(num_days))
         if nurse.is_male:
             model.add(menst_sum == 0)
         elif hard_counts[_생휴] > 0:
-            model.add(menst_sum == 1)  # 요청 2건이어도 최대 1
-        elif rules.menstrual_leave:
-            model.add(menst_sum == 1)
+            model.add(menst_sum == min(hard_counts[_생휴], max_menst))
+        elif rules.menstrual_leave and max_menst > 0:
+            model.add(menst_sum == max_menst)
         else:
             model.add(menst_sum == 0)
 

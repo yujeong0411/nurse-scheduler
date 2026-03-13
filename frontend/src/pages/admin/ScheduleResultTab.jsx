@@ -89,7 +89,7 @@ function CellEditModal({ nurse, day, startDate, currentShift, onSave, onClose })
   )
 }
 
-export default function ScheduleResultTab() {
+export default function ScheduleResultTab({ period }) {
   const [settings, setSettings] = useState(null)
   const [jobId, setJobId] = useState(null)
   const [jobStatus, setJobStatus] = useState(null)
@@ -106,8 +106,13 @@ export default function ScheduleResultTab() {
   const showMsg = (m) => { setMsg(m); setTimeout(() => setMsg(''), 3000) }
 
   useEffect(() => {
-    settingsApi.get().then(res => setSettings(res.data)).catch(() => {}).finally(() => setLoading(false))
-  }, [])
+    if (period) {
+      setSettings(period)
+      setLoading(false)
+    } else {
+      settingsApi.get().then(res => setSettings(res.data)).catch(() => {}).finally(() => setLoading(false))
+    }
+  }, [period?.period_id])
 
   // 폴링 시작
   useEffect(() => {
@@ -206,7 +211,7 @@ export default function ScheduleResultTab() {
   const startWd = startDate ? getWd(startDate, 1) : 0
 
   return (
-    <div className="p-4 space-y-4 max-w-4xl mx-auto">
+    <div className="p-4 space-y-4">
       {/* 액션 바 */}
       <div className="bg-white rounded-2xl shadow-sm p-4">
         <div className="flex items-center justify-between mb-3">

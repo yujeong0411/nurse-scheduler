@@ -388,6 +388,8 @@ def import_nurse_rules(filepath: str, password: str | None = None) -> list[Nurse
       F열: 비고3 (특수) — 임산부, 남자
       G열: 비고4 (근무형태) — 주4일제
     """
+    WD_MAP = {"월": 0, "화": 1, "수": 2, "목": 3, "금": 4, "토": 5, "일": 6}
+
     wb = load_workbook_safe(filepath, password, read_only=True, data_only=True)
     ws = wb.active
 
@@ -409,11 +411,22 @@ def import_nurse_rules(filepath: str, password: str | None = None) -> list[Nurse
         return []
 
     # 비고 컬럼 위치 (이름 기준 상대)
-    # 일반적으로 D=비고1, E=비고2, F=비고3, G=비고4
     col_role = name_col + 1    # 비고1
     col_grade = name_col + 2   # 비고2
     col_special = name_col + 3 # 비고3
     col_work = name_col + 4    # 비고4
+
+    # 헤더 행 전체 스캔 → 고정 주휴 / 연차 열 위치 탐지
+    col_weekly_off = None
+    col_vacation = None
+    for cell in ws[header_row]:
+        val = str(cell.value).strip() if cell.value else ""
+        if not val:
+            continue
+        if "주휴" in val or "고정" in val:
+            col_weekly_off = cell.column
+        elif any(k in val for k in ("연차", "휴가잔여", "단월", "휴가")):
+            col_vacation = cell.column
 
     nurses = []
     nurse_id = 1
@@ -452,6 +465,23 @@ def import_nurse_rules(filepath: str, password: str | None = None) -> list[Nurse
             val = str(row[col_work - 1].value).strip() if row[col_work - 1].value else ""
             if "주4" in val or "4일" in val:
                 nurse.is_4day_week = True
+
+        # 고정 주휴 (요일 → 0~6)
+        if col_weekly_off and col_weekly_off - 1 < len(row):
+            val = str(row[col_weekly_off - 1].value).strip() if row[col_weekly_off - 1].value else ""
+            # "월요일" → "월" 로 정규화
+            val = val.replace("요일", "")
+            if val in WD_MAP:
+                nurse.fixed_weekly_off = WD_MAP[val]
+
+        # 연차 잔여
+        if col_vacation and col_vacation - 1 < len(row):
+            v = row[col_vacation - 1].value
+            if v is not None:
+                try:
+                    nurse.vacation_days = int(v)
+                except (ValueError, TypeError):
+                    pass
 
         nurses.append(nurse)
         nurse_id += 1
@@ -900,6 +930,58 @@ def import_prev_schedule(
 
     wb.close()
     return tail_result, n_counts, sleep_counts, vac_days
+
+
+def import_prev_menstrual(
+    filepath: str,
+    nurse_names: list[str],
+    start_date: date,
+    password: str | None = None,
+) -> dict[str, dict[int, int]]:
+    """이전 근무표에서 간호사별 월별 생휴 횟수 추출
+
+    Args:
+        filepath: 엑셀 파일 경로
+        nurse_names: 매칭할 간호사 이름 리스트
+        start_date: 이전 근무표 시작일 (실제 달력 날짜 계산용)
+
+    Returns:
+        {nurse_name: {month: count}} — 월별 생휴 사용 횟수
+    """
+    wb = load_workbook_safe(filepath, password, read_only=True, data_only=True)
+    ws = wb.active
+
+    result = _find_day_columns(ws)
+    if result is None:
+        wb.close()
+        return {}
+
+    header_row, day_cols, name_col, data_start = result
+    all_day_range = sorted(day_cols.keys())
+    name_set = set(n.strip() for n in nurse_names)
+    stop_words = {"요일", "이름", "일", "off", "주", "수면", "생휴", "vac", "총",
+                  "d 인원", "중2 인원", "e 인원", "n 인원"}
+
+    menstrual_by_nurse: dict[str, dict[int, int]] = {}
+
+    for row in ws.iter_rows(min_row=data_start):
+        cell = row[name_col - 1] if name_col - 1 < len(row) else None
+        name = str(cell.value).strip() if cell and cell.value else ""
+        if not name or name.lower() in stop_words or name not in name_set:
+            continue
+
+        counts: dict[int, int] = {}
+        for d in all_day_range:
+            col = day_cols[d]
+            c = row[col - 1] if col - 1 < len(row) else None
+            val = str(c.value).strip() if c and c.value else ""
+            if _normalize_code(val) == "생휴" or val == "생휴":
+                actual = start_date + timedelta(days=d - 1)
+                counts[actual.month] = counts.get(actual.month, 0) + 1
+        menstrual_by_nurse[name] = counts
+
+    wb.close()
+    return menstrual_by_nurse
 
 
 # ══════════════════════════════════════════
