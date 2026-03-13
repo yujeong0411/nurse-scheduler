@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import useAuthStore from '../../store/auth'
-import { settingsApi } from '../../api/client'
+import { settingsApi, authApi } from '../../api/client'
 import SettingsTab from './SettingsTab'
 import NurseManagementTab from './NurseManagementTab'
 import SubmissionsTab from './SubmissionsTab'
@@ -61,6 +61,10 @@ export default function AdminLayout() {
   const [selPeriodId, setSelPeriodId] = useState(() => localStorage.getItem('admin_period_id') || null)
   const [showPeriodPicker, setShowPeriodPicker] = useState(false)
   const [deptName, setDeptName] = useState('')
+  const [showPwModal, setShowPwModal] = useState(false)
+  const [pwForm, setPwForm] = useState({ old_pw: '', new_pw: '', confirm: '' })
+  const [pwMsg, setPwMsg] = useState(null)
+  const [pwLoading, setPwLoading] = useState(false)
   const pickerRef = useRef(null)
 
   const loadPeriods = (selectStartDate = null) => {
@@ -142,6 +146,19 @@ export default function AdminLayout() {
 
   const handleLogout = () => { clearAuth(); navigate('/') }
 
+  const handlePwChange = async () => {
+    if (pwForm.new_pw !== pwForm.confirm) { setPwMsg({ ok: false, text: '새 비밀번호가 일치하지 않습니다.' }); return }
+    if (pwForm.new_pw.length < 4) { setPwMsg({ ok: false, text: '비밀번호는 4자 이상이어야 합니다.' }); return }
+    setPwLoading(true); setPwMsg(null)
+    try {
+      await authApi.changeAdminPw(pwForm.old_pw, pwForm.new_pw)
+      setPwMsg({ ok: true, text: '비밀번호가 변경되었습니다.' })
+      setTimeout(() => { setShowPwModal(false); setPwForm({ old_pw: '', new_pw: '', confirm: '' }); setPwMsg(null) }, 1500)
+    } catch (e) {
+      setPwMsg({ ok: false, text: e.response?.data?.detail || '변경 실패' })
+    } finally { setPwLoading(false) }
+  }
+
   const endDate = selPeriod?.start_date
     ? new Date(new Date(selPeriod.start_date).getTime() + 27 * 86400000)
     : null
@@ -192,26 +209,32 @@ export default function AdminLayout() {
                         className={`flex-1 text-left px-3 py-2 text-sm flex items-center gap-2 ${isSelected ? 'text-blue-700 font-semibold' : 'text-slate-700'}`}>
                         <span>{fmtDate(p.start_date)} ~ {fmtDate(ed)}</span>
                         {isActive && (
-                          <span className="px-1.5 py-0.5 bg-emerald-100 text-emerald-700 text-xs font-bold rounded-full">간호사 표시중</span>
+                          /* 눈 아이콘: 간호사에게 표시중 */
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#10b981" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" title="간호사에게 표시중" className="flex-shrink-0">
+                            <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
+                            <circle cx="12" cy="12" r="3"/>
+                          </svg>
                         )}
                       </button>
-                      {/* 활성화 버튼 */}
+                      {/* 활성화 버튼 (eye-off) */}
                       {!isActive && (
                         <button
                           onClick={(e) => handleActivatePeriod(e, p)}
-                          className="w-6 h-6 flex items-center justify-center rounded-full text-slate-300 hover:text-emerald-600 hover:bg-emerald-50 opacity-0 group-hover:opacity-100 transition-all flex-shrink-0"
+                          className="w-7 h-7 flex items-center justify-center rounded-full text-slate-500 hover:text-emerald-600 hover:bg-emerald-50 active:bg-emerald-100 transition-all flex-shrink-0"
                           title="간호사에게 이 기간 표시">
-                          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                            <polyline points="20 6 9 17 4 12"/>
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                            <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94"/>
+                            <path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19"/>
+                            <line x1="1" y1="1" x2="23" y2="23"/>
                           </svg>
                         </button>
                       )}
                       {/* 삭제 버튼 */}
                       <button
                         onClick={(e) => handleDeletePeriod(e, p)}
-                        className="mr-2 w-6 h-6 flex items-center justify-center rounded-full text-slate-300 hover:text-red-500 hover:bg-red-50 opacity-0 group-hover:opacity-100 transition-all flex-shrink-0"
+                        className="mr-2 w-7 h-7 flex items-center justify-center rounded-full text-slate-400 hover:text-red-500 hover:bg-red-50 active:bg-red-100 transition-all flex-shrink-0"
                         title="삭제">
-                        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                           <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
                         </svg>
                       </button>
@@ -222,16 +245,27 @@ export default function AdminLayout() {
             )}
           </div>
 
-          <button
-            onClick={handleLogout}
-            className="flex items-center gap-1.5 text-slate-500 hover:text-slate-800 text-xs font-medium px-3 py-1.5 rounded-lg hover:bg-slate-100 transition-colors">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>
-              <polyline points="16 17 21 12 16 7"/>
-              <line x1="21" y1="12" x2="9" y2="12"/>
-            </svg>
-            로그아웃
-          </button>
+          <div className="flex items-center gap-1">
+            <button
+              onClick={() => setShowPwModal(true)}
+              className="w-8 h-8 flex items-center justify-center text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-lg transition-colors"
+              title="비밀번호 변경">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
+                <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+              </svg>
+            </button>
+            <button
+              onClick={handleLogout}
+              className="flex items-center gap-1.5 text-slate-500 hover:text-slate-800 text-xs font-medium px-3 py-1.5 rounded-lg hover:bg-slate-100 transition-colors">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>
+                <polyline points="16 17 21 12 16 7"/>
+                <line x1="21" y1="12" x2="9" y2="12"/>
+              </svg>
+              로그아웃
+            </button>
+          </div>
         </div>
 
         {/* 탭 */}
@@ -255,6 +289,47 @@ export default function AdminLayout() {
           })}
         </nav>
       </header>
+
+      {/* 비밀번호 변경 모달 */}
+      {showPwModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4"
+          onClick={() => { setShowPwModal(false); setPwForm({ old_pw: '', new_pw: '', confirm: '' }); setPwMsg(null) }}>
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm p-6" onClick={e => e.stopPropagation()}>
+            <h2 className="font-bold text-slate-900 text-base mb-4">관리자 비밀번호 변경</h2>
+            <div className="space-y-3">
+              {[
+                { key: 'old_pw', label: '현재 비밀번호' },
+                { key: 'new_pw', label: '새 비밀번호' },
+                { key: 'confirm', label: '새 비밀번호 확인' },
+              ].map(({ key, label }) => (
+                <div key={key}>
+                  <label className="block text-xs font-semibold text-slate-500 mb-1">{label}</label>
+                  <input
+                    type="password"
+                    value={pwForm[key]}
+                    onChange={e => setPwForm(p => ({ ...p, [key]: e.target.value }))}
+                    onKeyDown={e => e.key === 'Enter' && handlePwChange()}
+                    className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
+              ))}
+            </div>
+            {pwMsg && (
+              <p className={`mt-3 text-xs font-semibold ${pwMsg.ok ? 'text-emerald-600' : 'text-red-500'}`}>{pwMsg.text}</p>
+            )}
+            <div className="flex gap-2 mt-4">
+              <button onClick={() => { setShowPwModal(false); setPwForm({ old_pw: '', new_pw: '', confirm: '' }); setPwMsg(null) }}
+                className="flex-1 py-2.5 rounded-xl text-sm font-semibold text-slate-600 bg-slate-100 hover:bg-slate-200 transition-colors">
+                취소
+              </button>
+              <button onClick={handlePwChange} disabled={pwLoading}
+                className="flex-1 py-2.5 rounded-xl text-sm font-bold text-white bg-blue-600 hover:bg-blue-700 transition-colors disabled:opacity-50">
+                {pwLoading ? '변경 중...' : '변경'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* 탭 콘텐츠 */}
       <main className="flex-1 flex flex-col">
