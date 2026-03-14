@@ -185,7 +185,7 @@ export default function SubmissionsTab({ period }) {
         <table className="text-xs border-collapse w-full" style={{ minWidth: 'max-content' }}>
           <thead>
             <tr>
-              <th className="sticky top-0 left-0 z-30 bg-slate-100 text-slate-600 px-3 py-2 text-left font-semibold border-b border-r border-slate-200 whitespace-nowrap" style={{ minWidth: 88 }}>
+              <th className="sticky top-0 left-0 z-30 px-3 py-2 text-left font-semibold border-b border-r border-slate-200 whitespace-nowrap" style={{ minWidth: 88, background: '#f8fafc', color: '#334155' }}>
                 이름
               </th>
               {days.map(d => {
@@ -195,8 +195,8 @@ export default function SubmissionsTab({ period }) {
                 return (
                   <th key={d} className="sticky top-0 z-10 py-1.5 font-medium text-center border-b border-r border-slate-200" style={{
                     minWidth: 42,
-                    background: isSun ? '#fee2e2' : isSat ? '#eff6ff' : '#f8fafc',
-                    color: isSun ? '#dc2626' : isSat ? '#2563eb' : '#64748b',
+                    background: isSun ? '#fff0f0' : isSat ? '#f5f8ff' : '#f8fafc',
+                    color: isSun ? '#dc2626' : isSat ? '#2563eb' : '#334155',
                   }}>
                     <div style={{ fontSize: 11 }}>{mmdd(dateObj)}</div>
                     <div style={{ fontSize: 11 }}>{WD[wd]}</div>

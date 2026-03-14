@@ -437,7 +437,7 @@ export default function ScheduleResultTab({ period }) {
           <table className="text-xs border-collapse w-full" style={{ minWidth: 'max-content' }}>
             <thead>
               <tr>
-                <th className="sticky top-0 left-0 z-30 bg-slate-100 text-slate-600 px-3 py-2 text-left font-semibold border-b border-r border-slate-200 whitespace-nowrap" style={{ minWidth: 88 }}>
+                <th className="sticky top-0 left-0 z-30 px-3 py-2 text-left font-semibold border-b border-r border-slate-200 whitespace-nowrap" style={{ minWidth: 88, background: '#f8fafc', color: '#334155' }}>
                   이름
                 </th>
                 {days.map(d => {
@@ -447,17 +447,17 @@ export default function ScheduleResultTab({ period }) {
                   return (
                     <th key={d} className="sticky top-0 z-10 py-1.5 font-medium text-center border-b border-r border-slate-200" style={{
                       minWidth: 42,
-                      background: isSun ? '#fee2e2' : isSat ? '#eff6ff' : '#f8fafc',
-                      color: isSun ? '#dc2626' : isSat ? '#2563eb' : '#64748b',
+                      background: isSun ? '#fff0f0' : isSat ? '#f5f8ff' : '#f8fafc',
+                      color: isSun ? '#dc2626' : isSat ? '#2563eb' : '#334155',
                     }}>
                       <div style={{ fontSize: 11 }}>{mmdd(dateObj)}</div>
                       <div style={{ fontSize: 11 }}>{WD[wd]}</div>
                     </th>
                   )
                 })}
-                {showStats && ['D', 'E', 'N', '총근무', '주말', '휴가잔여', '수면잔여'].map(h => (
+                {showStats && ['총근무', 'D', 'E', 'N', '중2', 'OFF', '휴가'].map((h, hi) => (
                   <th key={h} className="sticky top-0 z-10 py-1.5 font-semibold text-center border-b border-r border-slate-200 text-indigo-700"
-                    style={{ minWidth: 44, borderLeft: h === 'D' ? '2px solid #c7d2fe' : undefined, fontSize: 10, background: '#eef2ff' }}>
+                    style={{ minWidth: 44, borderLeft: hi === 0 ? '2px solid #c7d2fe' : undefined, fontSize: 10, background: '#eef2ff' }}>
                     {h}
                   </th>
                 ))}
@@ -468,23 +468,17 @@ export default function ScheduleResultTab({ period }) {
                 const nurseShifts = scheduleData[nurse.id] || {}
 
                 // 통계 계산
-                let dCnt = 0, eCnt = 0, nCnt = 0, 중2Cnt = 0, vacUsed = 0, sleepUsed = 0
-                let wkWork = 0
+                let dCnt = 0, eCnt = 0, nCnt = 0, 중2Cnt = 0, offCnt = 0, vacCnt = 0
                 days.forEach(d => {
                   const s = nurseShifts[d] || nurseShifts[String(d)] || ''
                   if (s === 'D' || s === 'D9' || s === 'D1') dCnt++
                   else if (s === 'E') eCnt++
                   else if (s === 'N') nCnt++
                   else if (s === '중2' || s === '중1') 중2Cnt++
-                  else if (s === '휴가') vacUsed++
-                  else if (s === '수면') sleepUsed++
-                  const wd = getWd(startDate, d)
-                  if ((wd === 5 || wd === 6) && WORK_SET.has(s)) wkWork++
+                  else if (s === 'OFF') offCnt++
+                  else if (s === '휴가') vacCnt++
                 })
                 const totalWork = dCnt + eCnt + nCnt + 중2Cnt
-                const vacRemain = (nurse.vacation_days ?? 0) - vacUsed
-                const sleepEarned = (nCnt >= sleepNMonthly ? 1 : 0) + (nurse.pending_sleep ? 1 : 0)
-                const sleepRemain = sleepEarned - sleepUsed
 
                 return (
                   <tr key={nurse.id} className="group hover:bg-blue-100 transition-colors">
@@ -522,19 +516,16 @@ export default function ScheduleResultTab({ period }) {
                         </td>
                       )
                     })}
-                    {showStats && [dCnt, eCnt, nCnt, totalWork, wkWork, vacRemain, sleepRemain].map((val, idx) => (
+                    {showStats && [totalWork, dCnt, eCnt, nCnt, 중2Cnt, offCnt, vacCnt].map((val, idx) => (
                       <td key={idx} className="text-center border-b border-r border-slate-200 font-medium"
                         style={{
                           background: '#eef2ff',
                           borderLeft: idx === 0 ? '2px solid #c7d2fe' : undefined,
                           padding: '2px 4px',
                           fontSize: 11,
-                          color: idx === 2 && val > 0 ? '#B91C1C'   // N: 빨간
-                               : idx === 5 && val <= 0 ? '#DC2626'   // 휴가잔여 0이하: 빨간
-                               : idx === 6 && val > 0 ? '#2563EB'    // 수면잔여 양수: 파란
-                               : '#374151',
+                          color: idx === 3 && val > 0 ? '#B91C1C' : '#374151',  // N: 빨간
                         }}>
-                        {val !== 0 || idx >= 5 ? val : ''}
+                        {val || ''}
                       </td>
                     ))}
                   </tr>

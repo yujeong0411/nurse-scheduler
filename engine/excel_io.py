@@ -149,7 +149,8 @@ def export_schedule(schedule: Schedule, rules: Rules, filepath: str):
     ws.cell(1, 1).alignment = Alignment(horizontal="center")
 
     # 헤더 (행3)
-    stat_cols = ["D", "중2", "E", "N", "OFF", "총 근무", "주말", "휴가잔여", "생휴", "잔여수면",]
+    stat_cols = ["D", "중2", "E", "N", "OFF", "총 근무", "주말", "휴가잔여", "생휴", "잔여수면",
+                 "공가", "경가", "휴가", "보수", "수면", "필수"]
     headers = ["이름"] + [f"{(start_date + timedelta(days=d-1)).day}일" for d in range(1, num_days + 1)] + stat_cols
     for c, h in enumerate(headers, 1):
         cell = ws.cell(3, c, h)
@@ -285,8 +286,15 @@ def export_schedule(schedule: Schedule, rules: Rules, filepath: str):
         sleep_earned = (1 if n_cnt >= rules.sleep_N_monthly else 0) + (1 if nurse.pending_sleep else 0)
         sleep_remain = sleep_earned - sleep_cnt
 
+        gong_cnt  = sum(1 for d in range(1, num_days + 1) if schedule.get_shift(nurse.id, d) == "공가")
+        gyeong_cnt= sum(1 for d in range(1, num_days + 1) if schedule.get_shift(nurse.id, d) == "경가")
+        huga_cnt  = sum(1 for d in range(1, num_days + 1) if schedule.get_shift(nurse.id, d) == "휴가")
+        bosu_cnt  = sum(1 for d in range(1, num_days + 1) if schedule.get_shift(nurse.id, d) == "보수")
+        pilsu_cnt = sum(1 for d in range(1, num_days + 1) if schedule.get_shift(nurse.id, d) == "필수")
         stat_vals = [d_cnt, 중2_cnt, e_cnt, n_cnt, off_cnt, total_work, wk_work,
-                     vac_remain, menst_cnt if menst_cnt else "", sleep_remain if sleep_remain > 0 else ""]
+                     vac_remain, menst_cnt if menst_cnt else "", sleep_remain if sleep_remain > 0 else "",
+                     gong_cnt or "", gyeong_cnt or "", huga_cnt or "", bosu_cnt or "",
+                     sleep_cnt or "", pilsu_cnt or ""]
         for j, val in enumerate(stat_vals):
             cell = ws.cell(row, num_days + 2 + j, val)
             cell.alignment = CENTER
