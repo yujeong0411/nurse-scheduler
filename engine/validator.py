@@ -1,6 +1,6 @@
 """수동 수정 시 규칙 위반 검증 — 응급실 간호사 근무표 (D/E/N)
 
-검증 항목 (18개):
+검증 항목 (21개):
  1-2. 역순 금지 (전날→오늘, 오늘→다음날)
  3.   연속 근무 ≤5일
  4.   연속 N ≤3개
@@ -19,6 +19,9 @@
  16b. N 다음날 보수/필수/번표 금지
  17.  휴가 잔여일 초과
  18.  고정 주휴 요일 위반
+ 19.  생휴: 남성 불가, 같은 달 1회 초과 금지
+ 20.  POFF: 임산부만
+ 21.  중2: 역할 '중2'만, 주말 불가
 """
 from datetime import timedelta
 from engine.models import (
@@ -110,41 +113,42 @@ def validate_change(
                 f"연속 N {consec_n}개 (최대 {rules.max_consecutive_N}개)"
             )
 
-    # ── 5. NN 후 휴무 ──
-    # N 추가 시: NN 패턴 형성되면 뒤 2일 확인
-    if new_shift == "N" and day > 1:
-        if schedule.get_shift(nid, day - 1) == "N":
+    # ── 5. NN/NNN 후 휴무 ──
+    # N을 놓을 때: 형성되는 N-블록(길이≥2)의 끝 이후 off_after일 확인
+    if new_shift == "N":
+        # 블록 끝 탐색 (day 포함, 오른쪽으로 확장)
+        block_end = day
+        while block_end < num_days and schedule.get_shift(nid, block_end + 1) == "N":
+            block_end += 1
+        # 블록 시작 탐색 (day 포함, 왼쪽으로 확장)
+        block_start = day
+        while block_start > 1 and schedule.get_shift(nid, block_start - 1) == "N":
+            block_start -= 1
+        block_len = block_end - block_start + 1
+        if block_len >= 2:
             for k in range(rules.off_after_2N):
-                check = day + 1 + k
+                check = block_end + 1 + k
                 if check <= num_days:
                     if schedule.get_shift(nid, check) in WORK_SHIFTS:
                         violations.append(
-                            f"NN 후 {check}일에 근무 있음 "
-                            f"(휴무 {rules.off_after_2N}일 필요)"
-                        )
-                        break
-    if new_shift == "N" and day < num_days:
-        if schedule.get_shift(nid, day + 1) == "N":
-            for k in range(rules.off_after_2N):
-                check = day + 2 + k
-                if check <= num_days:
-                    if schedule.get_shift(nid, check) in WORK_SHIFTS:
-                        violations.append(
-                            f"NN 후 {check}일에 근무 있음 "
+                            f"N {block_len}연속 후 {check}일에 근무 있음 "
                             f"(휴무 {rules.off_after_2N}일 필요)"
                         )
                         break
 
-    # OFF→근무 변경 시: 앞에 NN 패턴 있으면 위반
+    # 근무→근무 or OFF→근무 변경 시: 앞 off_after일 내에 NN 이상 블록 끝이 있으면 위반
     if is_work and old_shift not in WORK_SHIFTS:
-        for offset in range(rules.off_after_2N):
-            check_day = day - offset
-            if check_day >= 2:
-                if (schedule.get_shift(nid, check_day - 1) == "N" and
-                        schedule.get_shift(nid, check_day) == "N"):
+        for end in range(day - 1, max(0, day - rules.off_after_2N - 1), -1):
+            if end >= 2:
+                s_end = schedule.get_shift(nid, end)
+                s_prev = schedule.get_shift(nid, end - 1)
+                s_after = schedule.get_shift(nid, end + 1) if end + 1 <= num_days else None
+                if (s_end == "N" and s_prev == "N"
+                        and (s_after is None or s_after != "N")):
+                    gap = day - end - 1
                     violations.append(
-                        f"{check_day-1}~{check_day}일 NN 후 "
-                        f"휴무 {rules.off_after_2N}일 미달"
+                        f"{end-1}~{end}일 N연속 후 "
+                        f"휴무 {rules.off_after_2N - gap}일 더 필요"
                     )
                     break
 
@@ -350,5 +354,43 @@ def validate_change(
                 f"{day}일은 고정 주휴일 ({weekday_names[nurse.fixed_weekly_off]}요일): "
                 f"'주' 필요 (현재: {new_shift})"
             )
+
+    # ── 19. 생휴: 남성 불가, 월 1회 초과 금지 ──
+    if new_shift == "생휴":
+        if nurse.is_male:
+            violations.append("생리휴가는 남성에게 배정할 수 없습니다")
+        else:
+            target_month = (schedule.start_date + timedelta(days=day - 1)).month
+            # 이전 근무표에서 시작 달(첫째 달)에 이미 생휴 사용 여부
+            is_start_month = target_month == schedule.start_date.month
+            already_used_prev = nurse.menstrual_used and is_start_month
+            # 현재 근무표 내 같은 달의 생휴 수 (오늘 제외)
+            same_month_count = sum(
+                1 for d in range(1, num_days + 1)
+                if d != day
+                and schedule.get_shift(nid, d) == "생휴"
+                and (schedule.start_date + timedelta(days=d - 1)).month == target_month
+            )
+            if already_used_prev:
+                violations.append(
+                    f"생리휴가는 이미 이전 근무표에서 {target_month}월에 사용했습니다"
+                )
+            elif same_month_count >= 1:
+                violations.append(
+                    f"생리휴가는 같은 달에 1회만 허용됩니다 (이미 {same_month_count}회 사용)"
+                )
+
+    # ── 20. POFF: 임산부만 ──
+    if new_shift == "POFF" and not nurse.is_pregnant:
+        violations.append("POFF(임산부 보호)는 임산부에게만 배정할 수 있습니다")
+
+    # ── 21. 중2: 역할 '중2'만, 주말 불가 ──
+    if new_shift == "중2":
+        if nurse.role != "중2":
+            violations.append(f"중2 근무는 역할이 '중2'인 간호사만 배정 가능합니다 (현재 역할: {nurse.role or '없음'})")
+        day_weekday = (schedule.start_date + timedelta(days=day - 1)).weekday()
+        if day_weekday >= 5:  # 토=5, 일=6
+            weekday_names = ["월", "화", "수", "목", "금", "토", "일"]
+            violations.append(f"중2 근무는 주말({weekday_names[day_weekday]})에 배정할 수 없습니다")
 
     return violations

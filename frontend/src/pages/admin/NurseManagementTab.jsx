@@ -117,7 +117,7 @@ export default function NurseManagementTab() {
   }
   useEffect(() => { load() }, [])
 
-  const showMsg = (text, ok = true) => { setMsg({ text, ok }); setTimeout(() => setMsg({ text: '', ok: true }), 2500) }
+  const showMsg = (text, ok = true, ms = 2500) => { setMsg({ text, ok }); setTimeout(() => setMsg({ text: '', ok: true }), ms) }
 
   const handleSave = async (form) => {
     try {
@@ -159,7 +159,7 @@ export default function NurseManagementTab() {
       const res = await nursesApi.applyPrevSchedule()
       showMsg(`✓ ${res.data.summary}`); load()
     } catch (err) {
-      showMsg(err.response?.data?.detail || '자동 반영 실패', false)
+      showMsg(err.response?.data?.detail || '자동 반영 실패', false, 7000)
     } finally { setApplying(false) }
   }
 
@@ -184,6 +184,7 @@ export default function NurseManagementTab() {
   )
 
   return (
+    <div className="flex-1 min-h-0 overflow-y-auto">
     <div className="p-2 sm:p-4 md:p-6 space-y-4 w-full max-w-5xl mx-auto">
       {/* 간호사 관리 버튼 */}
       <div className="flex gap-2">
@@ -250,9 +251,9 @@ export default function NurseManagementTab() {
 
       {/* 메시지 */}
       {msg.text && (
-        <div className={`rounded-xl px-4 py-3 text-center text-sm font-semibold border ${
-          msg.ok ? 'bg-green-50 text-green-700 border-green-200' : 'bg-red-50 text-red-600 border-red-200'
-        }`}>
+        <div className={`rounded-xl px-4 py-3 text-sm font-semibold border ${
+          msg.ok ? 'bg-green-50 text-green-700 border-green-200 text-center' : 'bg-red-50 text-red-600 border-red-200'
+        }`} style={{ whiteSpace: 'pre-line' }}>
           {msg.ok ? '✓ ' : '✗ '}{msg.text}
         </div>
       )}
@@ -329,6 +330,7 @@ export default function NurseManagementTab() {
       </div>
 
       <p className="text-center text-xs text-slate-400">총 {nurses.length}명</p>
+    </div>
     </div>
   )
 }

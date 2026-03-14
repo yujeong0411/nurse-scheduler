@@ -93,16 +93,19 @@ export default function NurseAuthPage() {
 
           {/* PIN */}
           <div>
-            <label className="label">PIN 번호</label>
+            <div className="flex items-center justify-between mb-1">
+              <label className="label" style={{ margin: 0 }}>PIN 번호</label>
+              <span className="text-xs text-slate-400">숫자 · 최대 8자리</span>
+            </div>
             <input
               type="password"
               inputMode="numeric"
-              maxLength={6}
+              maxLength={8}
               value={pin}
               onChange={e => { setPin(e.target.value.replace(/[^0-9]/g, '')); setErr('') }}
               onKeyDown={e => { if (e.key === 'Enter') handleLogin() }}
-              placeholder="● ● ● ●"
-              className="input text-center text-3xl tracking-widest py-4"
+              placeholder="숫자 PIN 입력"
+              className="input"
             />
           </div>
 

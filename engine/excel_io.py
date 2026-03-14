@@ -101,15 +101,16 @@ FONTS = {
     "번표": Font(size=10),
 }
 
-HEADER_FILL = PatternFill(start_color="013976", fill_type="solid")
-HEADER_FONT = Font(color="FFFFFF", bold=True, size=10)
+TITLE_FILL  = PatternFill(start_color="4472C4", fill_type="solid")
+HEADER_FILL = PatternFill(start_color="D9D9D9", fill_type="solid")
+HEADER_FONT = Font(bold=True, size=10)
 WEEKEND_FILL = PatternFill(start_color="F2F2F2", fill_type="solid")
 SHORTAGE_FILL = PatternFill(start_color="FFCCCC", fill_type="solid")
 THIN_BORDER = Border(
-    left=Side(style="thin", color="D0D0D0"),
-    right=Side(style="thin", color="D0D0D0"),
-    top=Side(style="thin", color="D0D0D0"),
-    bottom=Side(style="thin", color="D0D0D0"),
+    left=Side(style="thin", color="AAAAAA"),
+    right=Side(style="thin", color="AAAAAA"),
+    top=Side(style="thin", color="AAAAAA"),
+    bottom=Side(style="thin", color="AAAAAA"),
 )
 RED_BORDER = Border(
     left=Side(style="medium", color="FF0000"),
@@ -143,7 +144,8 @@ def export_schedule(schedule: Schedule, rules: Rules, filepath: str):
     ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=num_days + 8)
     title = f"{start_date.strftime('%Y.%m.%d')} ~ {end_date.strftime('%Y.%m.%d')} 응급실 근무표"
     ws.cell(1, 1, title)
-    ws.cell(1, 1).font = Font(bold=True, size=14, color="013976")
+    ws.cell(1, 1).font = Font(bold=True, size=14, color="FFFFFF")
+    ws.cell(1, 1).fill = TITLE_FILL
     ws.cell(1, 1).alignment = Alignment(horizontal="center")
 
     # 헤더 (행3)
@@ -152,7 +154,11 @@ def export_schedule(schedule: Schedule, rules: Rules, filepath: str):
     for c, h in enumerate(headers, 1):
         cell = ws.cell(3, c, h)
         cell.fill = HEADER_FILL
-        cell.font = HEADER_FONT
+        # 이름 열(1)과 통계 열은 10pt, 날짜 열은 9pt
+        if c == 1 or c > num_days + 1:
+            cell.font = Font(bold=True, size=10)
+        else:
+            cell.font = Font(bold=True, size=9)
         cell.alignment = CENTER
         cell.border = THIN_BORDER
 
@@ -160,13 +166,17 @@ def export_schedule(schedule: Schedule, rules: Rules, filepath: str):
     ws.cell(4, 1, "요일")
     ws.cell(4, 1).font = Font(size=10)
     ws.cell(4, 1).alignment = CENTER
+    ws.cell(4, 1).border = THIN_BORDER
     for d in range(1, num_days + 1):
         wd = schedule.weekday_index(d)
         cell = ws.cell(4, d + 1, weekday_names[wd])
         cell.alignment = CENTER
         cell.font = Font(size=9, color="CC0000" if wd >= 5 else "333333")
+        cell.border = THIN_BORDER
         if wd >= 5:
             cell.fill = WEEKEND_FILL
+    for j in range(len(stat_cols)):
+        ws.cell(4, num_days + 2 + j).border = THIN_BORDER
 
     # 요청사항 조회 맵 구성
     _off_set = set(OFF_TYPES)
@@ -316,15 +326,19 @@ def export_schedule(schedule: Schedule, rules: Rules, filepath: str):
     # ── Sheet 2: 통계 ──
     ws2 = wb.create_sheet("통계")
     ws2.cell(1, 1, f"{start_date.strftime('%Y.%m.%d')} ~ {end_date.strftime('%Y.%m.%d')} 개인별 통계")
-    ws2.cell(1, 1).font = Font(bold=True, size=14, color="013976")
+    ws2.cell(1, 1).font = Font(bold=True, size=14, color="FFFFFF")
+    ws2.cell(1, 1).fill = TITLE_FILL
+    ws2.cell(1, 1).alignment = Alignment(horizontal="center")
 
     stat_headers = ["이름", "직급", "역할", "D", "중2", "E", "N",
                     "OFF", "총근무", "N비율", "주말근무", "휴가잔여", "생휴", "잔여수면"]
+    ws2.merge_cells(start_row=1, start_column=1, end_row=1, end_column=len(stat_headers))
     for c, h in enumerate(stat_headers, 1):
         cell = ws2.cell(3, c, h)
         cell.fill = HEADER_FILL
         cell.font = HEADER_FONT
         cell.alignment = CENTER
+        cell.border = THIN_BORDER
 
     for i, nurse in enumerate(nurses):
         row = 4 + i

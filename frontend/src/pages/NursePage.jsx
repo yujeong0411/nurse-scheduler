@@ -1,10 +1,10 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { requestsApi, settingsApi, rulesApi, nursesApi } from '../api/client'
+import { requestsApi, settingsApi, rulesApi, nursesApi, holidaysApi } from '../api/client'
 import useAuthStore from '../store/auth'
 import { validate } from '../utils/validate'
 import {
-  NUM_DAYS, WD, WORK_SET, DEFAULT_RULES,
+  NUM_DAYS, WD, DEFAULT_RULES,
   sc, fmtDate, getWd, getDate, mmdd, dlPassed
 } from '../utils/constants'
 import ShiftSheet from '../components/ShiftSheet'
@@ -26,6 +26,7 @@ export default function NursePage() {
   const [loading, setLoading] = useState(true)
   const [showPin, setShowPin] = useState(false)
   const [toast, setToast] = useState(null)
+  const [holidayNames, setHolidayNames] = useState({}) // period day → 공휴일 이름
 
   const showToast = (msg, ok = true) => {
     setToast({ msg, ok })
@@ -52,6 +53,29 @@ export default function NursePage() {
           })
           setShifts(map)
           setNotes(noteMap)
+        }
+
+        // 공휴일 이름 매핑 (기간이 두 달에 걸칠 수 있으므로 두 달 모두 조회)
+        if (s.start_date) {
+          const start = new Date(s.start_date)
+          const holMap = {}
+          const seen = new Set()
+          for (let di = 0; di < NUM_DAYS; di++) {
+            const d = new Date(start.getTime() + di * 86400000)
+            const ym = `${d.getFullYear()}-${d.getMonth()}`
+            if (!seen.has(ym)) {
+              seen.add(ym)
+              try {
+                const res = await holidaysApi.get(d.getFullYear(), d.getMonth() + 1)
+                ;(res.data || []).forEach(h => {
+                  const hd = new Date(d.getFullYear(), d.getMonth(), h.day)
+                  const idx = Math.round((hd - start) / 86400000) + 1
+                  if (idx >= 1 && idx <= NUM_DAYS) holMap[idx] = h.name
+                })
+              } catch { /* 공휴일 조회 실패 무시 */ }
+            }
+          }
+          setHolidayNames(holMap)
         }
       } catch (e) {
         if (e.response?.status === 401) { clearAuth(); navigate('/') }
@@ -107,20 +131,24 @@ export default function NursePage() {
   for (let d = 1; d <= NUM_DAYS; d++) cells.push(d)
   while (cells.length % 7 !== 0) cells.push(null)
 
-  let nCnt = 0, wCnt = 0, oCnt = 0
-  Object.values(shifts).forEach(v => {
-    if (v) {
-      if (WORK_SET.has(v)) wCnt++; else oCnt++
-      if (v === 'N') nCnt++
-    }
-  })
   const reqCount = Object.keys(shifts).length
 
   const nurseForValidate = nurse ? { ...nurse, is_4day: nurse.is_4day_week } : null
+
+  // 공휴일 API 결과를 규칙에 병합 → 법휴 유효성 검사에 자동 반영
+  const effectiveRules = {
+    ...rules,
+    public_holidays: [
+      ...(rules.public_holidays || []),
+      ...Object.keys(holidayNames).map(Number)
+        .filter(d => !(rules.public_holidays || []).includes(d))
+    ]
+  }
+
   const allV = (startDate && nurseForValidate) ? Object.entries(shifts).reduce((acc, [day, code]) => {
     const ps = { ...shifts }; delete ps[+day]
     const label = mmdd(getDate(startDate, +day))
-    validate(ps, +day, code, nurseForValidate, rules, startDate)
+    validate(ps, +day, code, nurseForValidate, effectiveRules, startDate)
       .forEach(v => acc.push(`${label}: ${v}`))
     return acc
   }, []) : []
@@ -188,6 +216,44 @@ export default function NursePage() {
         )}
       </header>
 
+      {/* 내 정보 카드 — 마감 배너 위 */}
+      {nurse && (
+        <div className="bg-white border-b border-slate-100 px-4 py-3">
+          <div className="flex flex-wrap gap-1.5">
+            {nurse.grade && (
+              <span className="px-2.5 py-1 rounded-full text-xs font-bold"
+                style={{ background: '#EFF6FF', color: '#1D4ED8' }}>{nurse.grade}</span>
+            )}
+            {nurse.role && (
+              <span className="px-2.5 py-1 rounded-full text-xs font-semibold"
+                style={{ background: '#F0F9FF', color: '#0369A1' }}>{nurse.role}</span>
+            )}
+            {nurse.is_male && (
+              <span className="px-2.5 py-1 rounded-full text-xs font-semibold"
+                style={{ background: '#F0F9FF', color: '#0284C7' }}>남성</span>
+            )}
+            {nurse.is_pregnant && (
+              <span className="px-2.5 py-1 rounded-full text-xs font-semibold"
+                style={{ background: '#FDF4FF', color: '#A21CAF' }}>임산부</span>
+            )}
+            {nurse.is_4day_week && (
+              <span className="px-2.5 py-1 rounded-full text-xs font-semibold"
+                style={{ background: '#F0FDF4', color: '#15803D' }}>주4일제</span>
+            )}
+            {nurse.fixed_weekly_off != null && nurse.fixed_weekly_off !== '' && (
+              <span className="px-2.5 py-1 rounded-full text-xs font-semibold"
+                style={{ background: '#FFFBEB', color: '#92400E' }}>주휴 {WD[parseInt(nurse.fixed_weekly_off)]}요일</span>
+            )}
+            <span className="px-2.5 py-1 rounded-full text-xs font-semibold"
+              style={{ background: '#F0FDF4', color: '#166534' }}>연차 {nurse.vacation_days ?? 0}일</span>
+            {nurse.pending_sleep && (
+              <span className="px-2.5 py-1 rounded-full text-xs font-semibold"
+                style={{ background: '#F8F9FF', color: '#3730A3' }}>수면이월</span>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* 마감 배너 */}
       {deadline && (
         <div className={`flex items-center justify-center gap-2 py-2 text-xs font-semibold ${passed ? 'bg-red-50 text-red-600 border-b border-red-100' : 'bg-amber-50 text-amber-700 border-b border-amber-100'}`}>
@@ -220,22 +286,6 @@ export default function NursePage() {
       ) : (
         <div className="flex-1 pb-28 space-y-3 p-4">
 
-          {/* 통계 카드 */}
-          <div className="grid grid-cols-4 gap-2">
-            {[
-              { label: '신청', val: reqCount, color: '#2563EB', bg: '#EFF6FF' },
-              { label: '근무', val: wCnt, color: '#0369A1', bg: '#F0F9FF' },
-              { label: '야간', val: nCnt, color: '#DC2626', bg: '#FEF2F2' },
-              { label: '휴무', val: oCnt, color: '#B45309', bg: '#FFFBEB' },
-            ].map(({ label, val, color, bg }) => (
-              <div key={label} className="rounded-2xl text-center py-3 px-1 border"
-                style={{ background: bg, borderColor: color + '22' }}>
-                <div className="font-black text-2xl leading-none" style={{ color }}>{val}</div>
-                <div className="text-xs font-semibold mt-1" style={{ color: color + 'aa' }}>{label}</div>
-              </div>
-            ))}
-          </div>
-
           {/* 위반 알림 */}
           {allV.length > 0 && (
             <div className="bg-red-50 border border-red-100 rounded-2xl p-3">
@@ -256,65 +306,77 @@ export default function NursePage() {
           )}
 
           {/* 달력 */}
-          <div className="bg-white rounded-2xl overflow-hidden border border-slate-100 shadow-sm">
+          <div className="bg-slate-50 rounded-2xl overflow-hidden border border-slate-200 shadow-sm">
             {/* 요일 헤더 */}
-            <div className="grid grid-cols-7 border-b border-slate-100">
+            <div className="grid grid-cols-7 px-2 pt-2.5 pb-1.5">
               {WD.map((wd, i) => (
-                <div key={i} className="text-center py-2 text-xs font-semibold"
-                  style={{ color: i === 6 ? '#EF4444' : i === 5 ? '#3B82F6' : '#94A3B8' }}>
+                <div key={i} className="text-center text-xs font-black"
+                  style={{ color: i === 6 ? '#F87171' : i === 5 ? '#60A5FA' : '#94A3B8', letterSpacing: '0.05em' }}>
                   {wd}
                 </div>
               ))}
             </div>
             {/* 날짜 셀 */}
-            <div className="grid grid-cols-7" style={{ gap: '1px', background: '#F1F5F9' }}>
+            <div className="grid grid-cols-7" style={{ gap: '2px', background: '#EEF2F7', padding: '2px' }}>
               {cells.map((day, i) => {
-                if (!day) return <div key={i} className="bg-white" style={{ minHeight: 68 }} />
+                if (!day) return <div key={i} className="rounded-xl bg-white/60" style={{ minHeight: 72 }} />
                 const wd = getWd(startDate, day)
                 const isSat = wd === 5, isSun = wd === 6
-                const isHol = (rules.public_holidays || []).includes(day)
+                const isHol = (effectiveRules.public_holidays || []).includes(day)
                 const s = shifts[day] || ''
                 const st = sc(s)
                 const ps = { ...shifts }; delete ps[day]
-                const vs = s && nurseForValidate ? validate(ps, day, s, nurseForValidate, rules, startDate) : []
+                const vs = s && nurseForValidate ? validate(ps, day, s, nurseForValidate, effectiveRules, startDate) : []
                 const dateObj = getDate(startDate, day)
                 const fixedWd = (nurseForValidate?.fixed_weekly_off != null && nurseForValidate?.fixed_weekly_off !== '')
                   ? parseInt(nurseForValidate.fixed_weekly_off) : -1
                 const isFixedOff = (!isNaN(fixedWd) && fixedWd >= 0 && wd === fixedWd)
-                const dateColor = isSat ? '#3B82F6' : (isSun || isHol) ? '#EF4444' : '#475569'
-                const cellBg = isFixedOff ? '#F1F5F9' : (isSun || isSat || isHol) ? '#F8FAFF' : '#FFFFFF'
+                const dateColor = isSat ? '#3B82F6' : (isSun || isHol) ? '#EF4444' : '#64748B'
+                const baseBg = (isSun || isHol) ? '#FFF5F5' : isSat ? '#F5F8FF' : '#FFFFFF'
+                const holName = holidayNames[day]
 
+                // 고정 주휴 — 회색 처리, 건들지 못한다는 느낌
                 if (isFixedOff) {
                   return (
-                    <div key={i} className="flex flex-col items-center pt-1.5 cursor-not-allowed"
-                      style={{ minHeight: 68, background: cellBg }}>
+                    <div key={i} className="flex flex-col items-center pt-2 rounded-xl cursor-not-allowed select-none"
+                      style={{ minHeight: 72, background: '#F1F5F9' }}>
                       <span className="text-xs font-semibold" style={{ color: '#94A3B8' }}>{mmdd(dateObj)}</span>
-                      <span className="mt-1 rounded-lg font-bold text-center px-1 py-0.5 text-xs w-4/5"
-                        style={{ background: '#CBD5E1', color: 'white' }}>주</span>
-                      <span className="text-xs mt-0.5" style={{ color: '#CBD5E1' }}>🔒</span>
+                      <span className="mt-1.5 font-bold text-sm leading-none" style={{ color: '#94A3B8' }}>주</span>
+                      <span className="mt-1" style={{ fontSize: 10, color: '#CBD5E1' }}>━━</span>
                     </div>
                   )
                 }
+
+                const cellBg = s ? st.bg : baseBg
 
                 return (
                   <button key={i}
                     onClick={() => { if (!passed) setPicker({ day }) }}
                     disabled={passed}
-                    className="flex flex-col items-center pt-1.5 transition-colors active:bg-blue-50 relative"
-                    style={{ minHeight: 68, background: cellBg }}>
-                    <span className="text-xs font-bold" style={{ color: dateColor }}>{mmdd(dateObj)}</span>
-                    {s ? (
-                      <span className="mt-1 rounded-lg font-bold text-center px-1 py-0.5 text-xs w-4/5 leading-tight"
-                        style={{ background: st.bg, color: st.fg, border: `1.5px solid ${st.border}` }}>
-                        {s}
+                    className="flex flex-col items-center pt-2 transition-all active:scale-95 relative rounded-xl"
+                    style={{ minHeight: 72, background: cellBg }}>
+                    <span className="text-xs font-bold leading-none" style={{ color: s ? st.fg + 'bb' : dateColor }}>{mmdd(dateObj)}</span>
+                    {holName && !s && (
+                      <span className="text-center leading-tight font-semibold mt-0.5"
+                        style={{ fontSize: 8, color: '#EF4444', maxWidth: '90%', lineHeight: '1.1' }}>
+                        {holName}
                       </span>
+                    )}
+                    {s ? (
+                      <span className="mt-1 font-black text-base leading-none" style={{ color: st.fg }}>{s}</span>
                     ) : (
-                      <span className="mt-1.5 flex items-center justify-center rounded-full text-slate-300"
-                        style={{ width: 24, height: 24, border: '2px dashed #CBD5E1', fontSize: 16 }}>+</span>
+                      <span className="mt-1.5 flex items-center justify-center rounded-full"
+                        style={{ width: 22, height: 22, background: (isSun || isHol) ? '#FEE2E2' : isSat ? '#DBEAFE' : '#F1F5F9', color: (isSun || isHol) ? '#FCA5A5' : isSat ? '#93C5FD' : '#CBD5E1', fontSize: 14, fontWeight: 700 }}>+</span>
+                    )}
+                    {holName && s && (
+                      <span className="font-semibold mt-0.5"
+                        style={{ fontSize: 8, color: st.fg + 'aa', maxWidth: '90%', textAlign: 'center', lineHeight: '1.1' }}>
+                        {holName}
+                      </span>
                     )}
                     {vs.length > 0 && (
                       <span className="absolute top-1 right-1 bg-red-500 text-white rounded-full flex items-center justify-center font-black"
-                        style={{ width: 15, height: 15, fontSize: 9 }}>!</span>
+                        style={{ width: 14, height: 14, fontSize: 8 }}>!</span>
                     )}
                   </button>
                 )
@@ -322,24 +384,7 @@ export default function NursePage() {
             </div>
           </div>
 
-          {/* 신청 내역 */}
-          {reqCount > 0 && (
-            <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-4">
-              <p className="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-3">신청 내역</p>
-              <div className="flex flex-wrap gap-1.5">
-                {Object.entries(shifts).sort(([a], [b]) => +a - +b).map(([day, code]) => {
-                  const st2 = sc(code)
-                  const dObj = getDate(startDate, +day)
-                  return (
-                    <span key={day} className="rounded-lg font-semibold text-xs px-2.5 py-1 border"
-                      style={{ background: st2.bg, color: st2.fg, borderColor: st2.border }}>
-                      {mmdd(dObj)} {code}
-                    </span>
-                  )
-                })}
-              </div>
-            </div>
-          )}
+
         </div>
       )}
 
@@ -378,7 +423,7 @@ export default function NursePage() {
           day={picker.day}
           shifts={shifts}
           nurse={nurseForValidate}
-          rules={rules}
+          rules={effectiveRules}
           startDate={startDate}
           notes={notes}
           onSelect={(s, note) => { setShift(picker.day, s, note); setPicker(null) }}

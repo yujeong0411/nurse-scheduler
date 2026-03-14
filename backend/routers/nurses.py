@@ -99,20 +99,24 @@ def apply_prev_schedule(
 
     db = get_db()
 
-    # 이전 스케줄 찾기
+    # 이전 근무표 찾기
     if schedule_id:
         sched_res = db.table("schedules").select("*").eq("id", schedule_id).single().execute()
         if not sched_res.data:
-            raise HTTPException(404, "스케줄을 찾을 수 없습니다.")
+            raise HTTPException(404, "이전 근무표를 찾을 수 없습니다.")
         sched = sched_res.data
         from ..database import get_period_by_id
         period = get_period_by_id(db, sched["period_id"])
     else:
-        # 현 부서의 가장 최근 완료 스케줄
+        # 현 부서의 가장 최근 완료 스케줄 (현재 활성 기간 제외)
+        active = get_active_period(db)
+        active_period_id = active["id"] if active else None
         periods_res = db_periods(db).order("start_date", desc=True).execute()
         sched = None
         period = None
         for p in periods_res.data:
+            if p["id"] == active_period_id:
+                continue  # 현재 진행 중인 기간은 건너뜀
             s = (db.table("schedules").select("*")
                  .eq("period_id", p["id"])
                  .order("created_at", desc=True)
@@ -122,7 +126,10 @@ def apply_prev_schedule(
                 period = p
                 break
         if not sched:
-            raise HTTPException(404, "이전 근무표가 없습니다. 근무표를 먼저 생성해주세요.")
+            raise HTTPException(404,
+            "이전 근무표가 존재하지 않습니다.\n"
+            "이전 달 근무표 파일이 있다면 '엑셀에서 반영' 버튼을 이용해주세요."
+        )
 
     # 현재(신규) 기간 시작일 — menstrual_used 판단 기준
     active_period = get_active_period(db)

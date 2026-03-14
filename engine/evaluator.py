@@ -79,7 +79,12 @@ def evaluate_schedule(schedule: Schedule, rules: Rules) -> dict:
     # OR 요청 그룹핑: (nurse_id, day) → [code, ...]
     or_groups = {}
     for r in schedule.requests:
-        if r.is_hard or r.is_exclude:
+        # 제외 요청: 해당 근무가 배정되지 않으면 반영
+        if r.is_exclude:
+            req_total += 1
+            actual = schedule.get_shift(r.nurse_id, r.day)
+            if r.excluded_shift and actual != r.excluded_shift:
+                req_fulfilled += 1
             continue
         if r.is_or:
             key = (r.nurse_id, r.day)

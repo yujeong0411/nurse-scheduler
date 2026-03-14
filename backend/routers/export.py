@@ -81,7 +81,11 @@ def export_schedule_excel(schedule_id: str, _: dict = Depends(get_current_admin)
         os.unlink(tmp_path)
 
     from urllib.parse import quote
-    filename = f"근무표_{period['start_date']}.xlsx"
+    from datetime import date, timedelta
+    sd = date.fromisoformat(period['start_date'])
+    ed = sd + timedelta(days=27)
+    fmt = lambda d: f"{str(d.year)[2:]}{d.month:02d}{d.day:02d}"
+    filename = f"근무표_{fmt(sd)}~{fmt(ed)}.xlsx"
     encoded = quote(filename, safe='')
     return StreamingResponse(
         io.BytesIO(content),

@@ -165,6 +165,7 @@ export default function SettingsTab({ period, onPeriodSaved }) {
   )
 
   return (
+    <div className="flex-1 min-h-0 overflow-y-auto">
     <div className="p-2 sm:p-4 md:p-6 space-y-4 w-full max-w-5xl mx-auto">
 
       {/* 일정 카드 */}
@@ -328,6 +329,7 @@ export default function SettingsTab({ period, onPeriodSaved }) {
           {savingRules ? '저장 중...' : '규칙 저장'}
         </button>
       </>)}
+    </div>
     </div>
   )
 }

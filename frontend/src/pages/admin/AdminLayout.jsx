@@ -135,7 +135,12 @@ export default function AdminLayout() {
 
   const handleDeletePeriod = async (e, p) => {
     e.stopPropagation()
-    if (!window.confirm(`${fmtDate(p.start_date)} 기간을 삭제하시겠습니까?\n신청 데이터와 근무표도 함께 삭제됩니다.`)) return
+    if (!window.confirm(
+      `⚠️ 영구 삭제 경고\n\n` +
+      `이 기간의 근무 신청·근무표·기간 정보가\n` +
+      `DB에서 완전히 삭제되며 복구 불가능합니다.\n\n` +
+      `계속하시겠습니까?`
+    )) return
     try {
       await settingsApi.deletePeriod(p.id)
       loadPeriods()
@@ -164,7 +169,7 @@ export default function AdminLayout() {
     : null
 
   return (
-    <div className="min-h-screen flex flex-col bg-slate-50">
+    <div className="h-screen flex flex-col bg-slate-50 overflow-hidden">
       {/* 헤더 */}
       <header className="bg-white border-b border-slate-200 sticky top-0 z-20">
         <div className="flex items-center justify-between px-4 h-14">
@@ -204,35 +209,34 @@ export default function AdminLayout() {
                   const isSelected = p.id === selPeriodId
                   const isActive = p.is_active
                   return (
-                    <div key={p.id} className={`flex items-center group transition-colors ${isSelected ? 'bg-blue-50' : 'hover:bg-slate-50'}`}>
+                    <div key={p.id} className={`flex items-center min-w-0 ${isSelected ? 'bg-blue-50' : 'hover:bg-slate-50'} transition-colors`}>
+                      {/* 날짜 텍스트 버튼 */}
                       <button onClick={() => handleSelectPeriod(p)}
-                        className={`flex-1 text-left px-3 py-2 text-sm flex items-center gap-2 ${isSelected ? 'text-blue-700 font-semibold' : 'text-slate-700'}`}>
-                        <span>{fmtDate(p.start_date)} ~ {fmtDate(ed)}</span>
-                        {isActive && (
-                          /* 눈 아이콘: 간호사에게 표시중 */
-                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#10b981" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" title="간호사에게 표시중" className="flex-shrink-0">
+                        className={`flex-1 min-w-0 text-left px-3 py-2.5 text-sm truncate ${isSelected ? 'text-blue-700 font-semibold' : 'text-slate-700'}`}>
+                        {fmtDate(p.start_date)} ~ {fmtDate(ed)}
+                      </button>
+                      {/* 눈 버튼 — 항상 오른쪽에 고정 */}
+                      <button
+                        onClick={(e) => { if (!isActive) handleActivatePeriod(e, p) }}
+                        className={`flex-shrink-0 w-8 h-8 flex items-center justify-center rounded-full transition-all ${isActive ? 'text-emerald-500 cursor-default' : 'text-slate-300 hover:text-emerald-500 hover:bg-emerald-50 active:bg-emerald-100'}`}
+                        title={isActive ? '간호사에게 표시 중' : '간호사에게 표시'}>
+                        {isActive ? (
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                             <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
                             <circle cx="12" cy="12" r="3"/>
                           </svg>
-                        )}
-                      </button>
-                      {/* 활성화 버튼 (eye-off) */}
-                      {!isActive && (
-                        <button
-                          onClick={(e) => handleActivatePeriod(e, p)}
-                          className="w-7 h-7 flex items-center justify-center rounded-full text-slate-500 hover:text-emerald-600 hover:bg-emerald-50 active:bg-emerald-100 transition-all flex-shrink-0"
-                          title="간호사에게 이 기간 표시">
+                        ) : (
                           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                             <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94"/>
                             <path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19"/>
                             <line x1="1" y1="1" x2="23" y2="23"/>
                           </svg>
-                        </button>
-                      )}
+                        )}
+                      </button>
                       {/* 삭제 버튼 */}
                       <button
                         onClick={(e) => handleDeletePeriod(e, p)}
-                        className="mr-2 w-7 h-7 flex items-center justify-center rounded-full text-slate-400 hover:text-red-500 hover:bg-red-50 active:bg-red-100 transition-all flex-shrink-0"
+                        className="flex-shrink-0 mr-1.5 w-8 h-8 flex items-center justify-center rounded-full text-slate-300 hover:text-red-500 hover:bg-red-50 active:bg-red-100 transition-all"
                         title="삭제">
                         <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                           <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
@@ -295,20 +299,23 @@ export default function AdminLayout() {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4"
           onClick={() => { setShowPwModal(false); setPwForm({ old_pw: '', new_pw: '', confirm: '' }); setPwMsg(null) }}>
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm p-6" onClick={e => e.stopPropagation()}>
-            <h2 className="font-bold text-slate-900 text-base mb-4">관리자 비밀번호 변경</h2>
+            <h2 className="font-bold text-slate-900 text-base mb-1">관리자 비밀번호 변경</h2>
+            <p className="text-xs text-slate-400 mb-4">영문·숫자·특수문자 사용 가능 · 최대 11자</p>
             <div className="space-y-3">
               {[
-                { key: 'old_pw', label: '현재 비밀번호' },
-                { key: 'new_pw', label: '새 비밀번호' },
-                { key: 'confirm', label: '새 비밀번호 확인' },
-              ].map(({ key, label }) => (
+                { key: 'old_pw', label: '현재 비밀번호', placeholder: '현재 비밀번호 입력' },
+                { key: 'new_pw', label: '새 비밀번호', placeholder: '새 비밀번호 입력' },
+                { key: 'confirm', label: '새 비밀번호 확인', placeholder: '새 비밀번호 다시 입력' },
+              ].map(({ key, label, placeholder }) => (
                 <div key={key}>
                   <label className="block text-xs font-semibold text-slate-500 mb-1">{label}</label>
                   <input
                     type="password"
+                    maxLength={11}
                     value={pwForm[key]}
                     onChange={e => setPwForm(p => ({ ...p, [key]: e.target.value }))}
                     onKeyDown={e => e.key === 'Enter' && handlePwChange()}
+                    placeholder={placeholder}
                     className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                   />
                 </div>
@@ -332,7 +339,7 @@ export default function AdminLayout() {
       )}
 
       {/* 탭 콘텐츠 */}
-      <main className="flex-1 flex flex-col">
+      <main className="flex-1 flex flex-col min-h-0">
         {activeTab === 'settings'    && <SettingsTab period={selPeriod} onPeriodSaved={loadPeriods} onSelectPeriod={handleSelectPeriod} />}
         {activeTab === 'nurses'      && <NurseManagementTab />}
         {activeTab === 'submissions' && <SubmissionsTab period={selPeriod ? { ...selPeriod, period_id: selPeriod.id } : null} />}

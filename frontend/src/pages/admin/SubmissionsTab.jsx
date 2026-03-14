@@ -3,6 +3,29 @@ import { requestsApi, nursesApi, rulesApi } from '../../api/client'
 import { sc, fmtDate, getWd, getDate, mmdd, WD, NUM_DAYS, SHIFT_GROUPS, DEFAULT_RULES } from '../../utils/constants'
 import { validate } from '../../utils/validate'
 
+const WD_KR = ['월', '화', '수', '목', '금', '토', '일']
+
+function NurseInfoBadges({ nurse }) {
+  if (!nurse) return null
+  const tags = []
+  if (nurse.grade) tags.push({ label: nurse.grade, color: '#1d4ed8', bg: '#eff6ff' })
+  if (nurse.role) tags.push({ label: nurse.role, color: '#6d28d9', bg: '#f5f3ff' })
+  if (nurse.is_male) tags.push({ label: '남', color: '#0369a1', bg: '#e0f2fe' })
+  if (nurse.is_4day_week) tags.push({ label: '주4일', color: '#047857', bg: '#ecfdf5' })
+  if (nurse.is_pregnant) tags.push({ label: '임산부', color: '#be185d', bg: '#fdf2f8' })
+  if (nurse.fixed_weekly_off != null && nurse.fixed_weekly_off !== '')
+    tags.push({ label: `${WD_KR[nurse.fixed_weekly_off]}요일 주휴`, color: '#92400e', bg: '#fffbeb' })
+  if (!tags.length) return null
+  return (
+    <div className="flex flex-wrap gap-1 mt-1">
+      {tags.map((t, i) => (
+        <span key={i} className="px-1.5 py-0.5 rounded text-xs font-medium"
+          style={{ color: t.color, background: t.bg }}>{t.label}</span>
+      ))}
+    </div>
+  )
+}
+
 export default function SubmissionsTab({ period }) {
   const [status, setStatus] = useState([])
   const [allRequests, setAllRequests] = useState({})
@@ -135,7 +158,7 @@ export default function SubmissionsTab({ period }) {
   const pct = status.length > 0 ? Math.round(submitted.length / status.length * 100) : 0
 
   return (
-    <div className="flex flex-col flex-1 overflow-hidden">
+    <div className="flex flex-col flex-1 min-h-0">
       {/* 상단 바 */}
       <div className="bg-white border-b border-slate-100 px-4 py-3 flex items-center gap-4 flex-shrink-0">
         <div className="flex-1 min-w-0">
@@ -158,11 +181,11 @@ export default function SubmissionsTab({ period }) {
       </div>
 
       {/* 그리드 */}
-      <div className="flex-1 overflow-auto">
+      <div className="flex-1 min-h-0" style={{ overflowY: 'auto', overflowX: 'scroll' }}>
         <table className="text-xs border-collapse w-full" style={{ minWidth: 'max-content' }}>
-          <thead className="sticky top-0 z-10">
+          <thead>
             <tr>
-              <th className="sticky left-0 z-20 bg-slate-100 text-slate-600 px-3 py-2 text-left font-semibold border-b border-r border-slate-200 whitespace-nowrap" style={{ minWidth: 88 }}>
+              <th className="sticky top-0 left-0 z-30 bg-slate-100 text-slate-600 px-3 py-2 text-left font-semibold border-b border-r border-slate-200 whitespace-nowrap" style={{ minWidth: 88 }}>
                 이름
               </th>
               {days.map(d => {
@@ -170,13 +193,13 @@ export default function SubmissionsTab({ period }) {
                 const isSat = wd === 5, isSun = wd === 6
                 const dateObj = getDate(startDate, d)
                 return (
-                  <th key={d} className="py-1.5 font-medium text-center border-b border-slate-200" style={{
+                  <th key={d} className="sticky top-0 z-10 py-1.5 font-medium text-center border-b border-r border-slate-200" style={{
                     minWidth: 42,
                     background: isSun ? '#fee2e2' : isSat ? '#eff6ff' : '#f8fafc',
                     color: isSun ? '#dc2626' : isSat ? '#2563eb' : '#64748b',
                   }}>
-                    <div style={{ fontSize: 10 }}>{mmdd(dateObj)}</div>
-                    <div style={{ fontSize: 10 }}>{WD[wd]}</div>
+                    <div style={{ fontSize: 11 }}>{mmdd(dateObj)}</div>
+                    <div style={{ fontSize: 11 }}>{WD[wd]}</div>
                   </th>
                 )
               })}
@@ -188,8 +211,8 @@ export default function SubmissionsTab({ period }) {
               const isSubmitted = !!st.submitted_at
               const isSavingThis = saving === st.nurse_id
               return (
-                <tr key={st.nurse_id} className="group hover:bg-blue-50/40 transition-colors">
-                  <td className="sticky left-0 z-10 px-3 py-1.5 font-medium whitespace-nowrap border-r border-b border-slate-100 bg-white group-hover:bg-blue-50/40 transition-colors">
+                <tr key={st.nurse_id} className="group hover:bg-blue-100 transition-colors">
+                  <td className="sticky left-0 z-10 px-3 py-1.5 font-medium whitespace-nowrap border-r border-b border-slate-200 bg-white group-hover:bg-blue-100 transition-colors">
                     <div className="flex items-center gap-1.5">
                       <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${isSavingThis ? 'bg-amber-400 animate-pulse' : isSubmitted ? 'bg-emerald-400' : 'bg-slate-200'}`} />
                       <span className="text-slate-800">{st.name}</span>
@@ -204,30 +227,27 @@ export default function SubmissionsTab({ period }) {
                     const c = code ? sc(code) : null
                     const isActive = activePick?.nurseId === st.nurse_id && activePick?.day === d
                     const isFixedOff = fixedOffMap[st.nurse_id] === wd
+                    const baseBg = isSun ? '#fef2f2' : isSat ? '#eff6ff' : isFixedOff ? '#f5f5f4' : undefined
                     return (
                       <td key={d}
                         onClick={isFixedOff ? undefined : (e) => handleCellClick(e, st.nurse_id, d)}
-                        className={`text-center p-0.5 border-b border-r border-slate-100 transition-colors ${isFixedOff ? 'cursor-default' : 'cursor-pointer'}`}
+                        className={`text-center border-b border-r border-slate-200 transition-colors ${isFixedOff ? 'cursor-default' : 'cursor-pointer'}`}
                         style={{
-                          background: isActive ? '#dbeafe' : (isSun ? '#fef2f2' : isSat ? '#eff6ff' : isFixedOff ? '#f5f5f4' : undefined),
+                          background: isActive ? '#dbeafe' : code && !isFixedOff ? '#fef9c3' : baseBg,
+                          padding: '2px 1px',
                         }}>
-                        {isFixedOff ? (
-                          <span className="inline-flex items-center justify-center rounded font-semibold"
-                            style={{ background: '#e7e5e4', color: '#78716c', border: '1px solid #d6d3d1', fontSize: 11, minWidth: 34, height: 22 }}>
-                            주
-                          </span>
-                        ) : code ? (
-                          <span className="relative inline-flex items-center justify-center rounded font-semibold"
-                            style={{ background: c.bg, color: c.fg, border: `1px solid ${c.border}`, fontSize: 11, minWidth: 34, height: 22, lineHeight: 1 }}
-                            title={note || undefined}>
-                            {code}
-                            {note && (
-                              <span className="absolute -top-1 -right-1 w-2 h-2 bg-amber-400 rounded-full border border-white" />
-                            )}
-                          </span>
-                        ) : (
-                          <span className="inline-block" style={{ minWidth: 34, height: 22 }} />
-                        )}
+                        <div className="flex flex-col items-center justify-center" style={{ minHeight: 22 }}>
+                          {isFixedOff ? (
+                            <span className="font-semibold" style={{ color: '#854D0E', fontSize: 11 }}>주</span>
+                          ) : code ? (
+                            <span className="relative font-semibold" style={{ color: code === 'N' ? '#B91C1C' : '#374151', fontSize: 11, lineHeight: 1 }} title={note || undefined}>
+                              {code}
+                              {note && (
+                                <span className="absolute -top-1 -right-1 w-2 h-2 bg-amber-400 rounded-full border border-white" style={{ display: 'inline-block' }} />
+                              )}
+                            </span>
+                          ) : null}
+                        </div>
                       </td>
                     )
                   })}
@@ -242,39 +262,62 @@ export default function SubmissionsTab({ period }) {
       {activePick && (() => {
         const { nurseId, day } = activePick
         const nurse = nursesMap[nurseId] || null
-        const startDate = period?.start_date || null
+        const sd = period?.start_date || null
+        const dateObj = sd ? getDate(sd, day) : null
+        const wd = sd ? getWd(sd, day) : null
         const shiftsForNurse = Object.fromEntries(
           Object.entries(allRequestsRef.current[nurseId] || {}).map(([d, v]) => [+d, v.code])
         )
         const shiftsWithout = { ...shiftsForNurse }; delete shiftsWithout[day]
         const currentCode = shiftsForNurse[day] || ''
+        const popW = Math.min(292, window.innerWidth - 8)
+        const popH = 320
+        const top = activePick.y + 4 + popH > window.innerHeight ? activePick.y - popH - 4 : activePick.y + 4
+        const left = Math.max(4, Math.min(activePick.x, window.innerWidth - popW - 4))
         return (
         <div ref={pickerRef}
-          className="fixed z-50 bg-white rounded-2xl shadow-2xl border border-slate-200 p-3"
-          style={{
-            width: Math.min(288, window.innerWidth - 8),
-            top: activePick.y + 4 + 260 > window.innerHeight ? activePick.y - 264 : activePick.y + 4,
-            left: Math.max(4, Math.min(activePick.x, window.innerWidth - Math.min(288, window.innerWidth - 8) - 4)),
-          }}>
-          <div className="space-y-2">
+          className="fixed z-50 bg-white rounded-2xl shadow-xl border border-slate-200"
+          style={{ width: popW, top, left }}>
+
+          {/* 헤더 */}
+          <div className="px-3.5 pt-3 pb-2.5 border-b border-slate-100">
+            <div className="flex items-center justify-between">
+              <div>
+                <span className="font-bold text-slate-800 text-sm">{nurse?.name || ''}</span>
+                {dateObj && (
+                  <span className="text-xs text-slate-400 ml-2">
+                    {dateObj.getMonth()+1}월 {dateObj.getDate()}일 ({WD[wd]})
+                  </span>
+                )}
+              </div>
+              <button onClick={() => setActivePick(null)}
+                className="w-6 h-6 flex items-center justify-center text-slate-300 hover:text-slate-500 hover:bg-slate-100 rounded-full transition-colors text-base">
+                ×
+              </button>
+            </div>
+            <NurseInfoBadges nurse={nurse} />
+          </div>
+
+          {/* 근무 선택 */}
+          <div className="p-3 space-y-2.5">
             {SHIFT_GROUPS.map(grp => (
               <div key={grp.label}>
                 <p className="text-xs font-semibold mb-1.5" style={{ color: grp.color }}>{grp.label}</p>
                 <div className="flex flex-wrap gap-1">
                   {grp.shifts.map(code => {
                     const c = sc(code)
-                    const vs = nurse ? validate(shiftsWithout, day, code, nurse, rules, startDate) : []
+                    const vs = nurse ? validate(shiftsWithout, day, code, nurse, rules, sd) : []
                     const isCur = code === currentCode
                     return (
                       <button key={code}
                         onClick={() => vs.length > 0 && !isCur
                           ? setBlockPopup({ code, violations: vs })
                           : handlePickCode(code)}
-                        className="relative px-2 py-0.5 rounded font-bold text-xs transition-opacity hover:opacity-80"
+                        className="relative rounded-lg font-bold py-1 px-2.5 text-xs transition-all"
                         style={{
                           background: isCur ? c.fg : c.bg,
                           color: isCur ? 'white' : c.fg,
-                          border: `1px solid ${vs.length > 0 && !isCur ? '#FCA5A5' : c.border}`,
+                          border: `1.5px solid ${vs.length > 0 && !isCur ? '#FCA5A5' : isCur ? c.fg : c.border}`,
                           opacity: vs.length > 0 && !isCur ? 0.45 : 1,
                         }}>
                         {code}

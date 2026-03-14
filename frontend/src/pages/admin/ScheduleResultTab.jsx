@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import { scheduleApi, requestsApi, settingsApi } from '../../api/client'
+import { scheduleApi, requestsApi, settingsApi, rulesApi } from '../../api/client'
 import { sc, fmtDate, getWd, getDate, mmdd, WD, NUM_DAYS, WORK_SET, SHIFT_GROUPS } from '../../utils/constants'
 
 const OFF_SET = new Set(['주', 'OFF', 'POFF', '법휴', '수면', '생휴', '휴가', '특휴', '공가', '경가', '보수', '필수', '번표', '병가'])
@@ -14,17 +14,35 @@ function isReqMatch(shift, reqCodes, isOr) {
   return false
 }
 
+const WD_KR = ['월', '화', '수', '목', '금', '토', '일']
+
+function NurseInfoBadges({ nurse }) {
+  if (!nurse) return null
+  const tags = []
+  if (nurse.grade) tags.push({ label: nurse.grade, color: '#1d4ed8', bg: '#eff6ff' })
+  if (nurse.role) tags.push({ label: nurse.role, color: '#6d28d9', bg: '#f5f3ff' })
+  if (nurse.is_male) tags.push({ label: '남', color: '#0369a1', bg: '#e0f2fe' })
+  if (nurse.is_4day_week) tags.push({ label: '주4일', color: '#047857', bg: '#ecfdf5' })
+  if (nurse.is_pregnant) tags.push({ label: '임산부', color: '#be185d', bg: '#fdf2f8' })
+  if (nurse.fixed_weekly_off != null && nurse.fixed_weekly_off !== '')
+    tags.push({ label: `${WD_KR[nurse.fixed_weekly_off]}요일 주휴`, color: '#92400e', bg: '#fffbeb' })
+  if (!tags.length) return null
+  return (
+    <div className="flex flex-wrap gap-1 mt-1.5">
+      {tags.map((t, i) => (
+        <span key={i} className="px-1.5 py-0.5 rounded text-xs font-medium"
+          style={{ color: t.color, background: t.bg }}>{t.label}</span>
+      ))}
+    </div>
+  )
+}
+
 function CellEditModal({ nurse, day, startDate, currentShift, onSave, onClose }) {
   const [shift, setShift] = useState(currentShift || '')
   const [err, setErr] = useState('')
   const [saving, setSaving] = useState(false)
   const [violations, setViolations] = useState([])
 
-  const SHIFT_OPTIONS = [
-    '', 'D', 'D9', 'D1', '중1', '중2', 'E', 'N',
-    '주', 'OFF', 'POFF', '법휴', '수면', '생휴', '휴가',
-    '병가', '특휴', '공가', '경가', '보수', '필수', '번표'
-  ]
   const dateObj = getDate(startDate, day)
   const wd = getWd(startDate, day)
 
@@ -45,26 +63,35 @@ function CellEditModal({ nurse, day, startDate, currentShift, onSave, onClose })
 
   return (
     <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4" onClick={onClose}>
-      <div className="bg-white rounded-2xl shadow-2xl p-5 w-full max-w-sm" onClick={e => e.stopPropagation()}>
-        <div className="flex items-center justify-between mb-4">
+      <div className="bg-white rounded-2xl shadow-xl p-5 w-full max-w-sm" onClick={e => e.stopPropagation()}>
+
+        {/* 헤더: 이름 + 날짜 + 닫기 */}
+        <div className="flex items-start justify-between mb-3">
           <div>
-            <h3 className="font-bold text-slate-900">{nurse.name}</h3>
-            <p className="text-xs text-slate-500 mt-0.5">{dateObj.getMonth()+1}월 {dateObj.getDate()}일 ({WD[wd]})</p>
+            <h3 className="font-bold text-slate-900 text-base">{nurse.name}</h3>
+            <p className="text-xs text-slate-400 mt-0.5">{dateObj.getMonth()+1}월 {dateObj.getDate()}일 ({WD[wd]})</p>
+            <NurseInfoBadges nurse={nurse} />
           </div>
-          <button onClick={onClose} className="w-8 h-8 bg-slate-100 rounded-full text-slate-500 font-bold text-lg">×</button>
+          <button onClick={onClose}
+            className="w-7 h-7 flex items-center justify-center bg-slate-100 hover:bg-slate-200 rounded-full text-slate-400 text-base transition-colors flex-shrink-0 ml-2">
+            ×
+          </button>
         </div>
 
-        <div className="space-y-2 mb-4">
+        <div className="h-px bg-slate-100 mb-3" />
+
+        {/* 근무 선택 */}
+        <div className="space-y-2.5 mb-4">
           {SHIFT_GROUPS.map(grp => (
             <div key={grp.label}>
-              <p className="text-xs font-semibold mb-1" style={{ color: grp.color }}>{grp.label}</p>
+              <p className="text-xs font-semibold mb-1.5" style={{ color: grp.color }}>{grp.label}</p>
               <div className="flex flex-wrap gap-1">
                 {grp.shifts.map(s => {
                   const st = sc(s)
                   const isSel = s === shift
                   return (
                     <button key={s} onClick={() => setShift(s)}
-                      className="rounded-lg font-bold py-1 px-2 text-xs transition-all"
+                      className="rounded-lg font-bold py-1 px-2.5 text-xs transition-all"
                       style={{
                         background: isSel ? st.fg : st.bg,
                         color: isSel ? 'white' : st.fg,
@@ -77,21 +104,24 @@ function CellEditModal({ nurse, day, startDate, currentShift, onSave, onClose })
               </div>
             </div>
           ))}
-          <button onClick={() => setShift('')}
-            className={`w-full py-1.5 rounded-lg text-xs font-semibold transition-colors mt-1 ${shift === '' ? 'bg-slate-200 text-slate-700' : 'bg-slate-50 text-slate-400 hover:bg-slate-100'}`}>
-            없음 (삭제)
-          </button>
+          <div className="pt-1 border-t border-slate-100">
+            <button onClick={() => setShift('')}
+              className={`w-full py-1.5 rounded-lg text-xs font-semibold transition-colors ${shift === '' ? 'bg-slate-200 text-slate-700' : 'text-slate-400 hover:text-red-500 hover:bg-red-50'}`}>
+              없음 (삭제)
+            </button>
+          </div>
         </div>
 
+        {/* 위반 경고 */}
         {violations.length > 0 && (
           <div className="mb-3 rounded-xl p-3 bg-red-50 border border-red-200">
-            <p className="text-sm font-bold text-red-700 mb-1">⚠️ 규칙 위반</p>
+            <p className="text-xs font-bold text-red-700 mb-1">⚠️ 규칙 위반</p>
             {violations.map((v, i) => <p key={i} className="text-xs text-red-600">• {v}</p>)}
             <div className="flex gap-2 mt-3">
               <button onClick={() => setViolations([])}
-                className="flex-1 text-sm py-2 bg-white rounded-xl font-semibold border border-slate-200">취소</button>
+                className="flex-1 text-xs py-2 bg-white rounded-lg font-semibold border border-slate-200 hover:bg-slate-50 transition-colors">취소</button>
               <button onClick={() => handleSave(true)}
-                className="flex-1 text-sm py-2 bg-red-500 text-white rounded-xl font-bold">무시하고 저장</button>
+                className="flex-1 text-xs py-2 bg-red-500 text-white rounded-lg font-bold hover:bg-red-600 transition-colors">무시하고 저장</button>
             </div>
           </div>
         )}
@@ -100,7 +130,7 @@ function CellEditModal({ nurse, day, startDate, currentShift, onSave, onClose })
 
         {violations.length === 0 && (
           <button onClick={() => handleSave(false)} disabled={saving}
-            className="w-full py-3 bg-blue-600 text-white rounded-xl font-bold text-sm disabled:opacity-50 hover:bg-blue-700 transition-colors">
+            className="w-full py-2.5 bg-blue-600 text-white rounded-xl font-bold text-sm disabled:opacity-50 hover:bg-blue-700 transition-colors">
             {saving ? '저장 중...' : '저장'}
           </button>
         )}
@@ -116,13 +146,15 @@ export default function ScheduleResultTab({ period }) {
   const [scheduleId, setScheduleId] = useState(null)
   const [scheduleData, setScheduleData] = useState(null)
   const [nurses, setNurses] = useState([])
-  const [reqMap, setReqMap] = useState({}) // { nurseId: { day: { codes, is_or } } }
+  const [reqMap, setReqMap] = useState({})
   const [evalData, setEvalData] = useState(null)
+  const [showStats, setShowStats] = useState(false)
+  const [sleepNMonthly, setSleepNMonthly] = useState(7)
   const [generating, setGenerating] = useState(false)
   const [loading, setLoading] = useState(true)
   const [editCell, setEditCell] = useState(null)
   const [exporting, setExporting] = useState(false)
-  const [msg, setMsg] = useState(null) // { text, ok }
+  const [msg, setMsg] = useState(null)
   const pollRef = useRef(null)
 
   const showMsg = (text, ok = true) => {
@@ -139,12 +171,16 @@ export default function ScheduleResultTab({ period }) {
         setSettings(cfg)
         const pid = cfg.period_id
         if (!pid) return
-        // 기존 근무표 + 신청 + 최신 job 병렬 로드
-        const [schedRes, reqRes, jobRes] = await Promise.allSettled([
+        // 기존 근무표 + 신청 + 최신 job + rules 병렬 로드
+        const [schedRes, reqRes, jobRes, rulesRes] = await Promise.allSettled([
           scheduleApi.getByPeriod(pid),
           requestsApi.getAll(pid),
           scheduleApi.latestJobByPeriod(pid),
+          rulesApi.get(),
         ])
+        if (rulesRes.status === 'fulfilled') {
+          setSleepNMonthly(rulesRes.value.data.sleep_n_monthly ?? 7)
+        }
         if (schedRes.status === 'fulfilled') {
           const d = schedRes.value.data
           setScheduleId(d.id)
@@ -242,7 +278,8 @@ export default function ScheduleResultTab({ period }) {
     return res.data
   }
 
-  const handleEvaluate = async () => {
+  const handleToggleEvaluate = async () => {
+    if (evalData) { setEvalData(null); return }
     if (!scheduleId) return
     try { const res = await scheduleApi.evaluate(scheduleId); setEvalData(res.data) }
     catch { showMsg('평가 실패', false) }
@@ -255,7 +292,10 @@ export default function ScheduleResultTab({ period }) {
       const res = await scheduleApi.exportXlsx(scheduleId)
       const url = URL.createObjectURL(res.data)
       const a = document.createElement('a'); a.href = url
-      a.download = `근무표_${settings?.start_date || ''}.xlsx`
+      const sd = settings?.start_date || ''
+      const fmt = s => { const d = new Date(s); return `${String(d.getFullYear()).slice(2)}${String(d.getMonth()+1).padStart(2,'0')}${String(d.getDate()).padStart(2,'0')}` }
+      const ed = sd ? new Date(new Date(sd).getTime() + 27*86400000).toISOString().slice(0,10) : ''
+      a.download = sd ? `근무표_${fmt(sd)}~${fmt(ed)}.xlsx` : '근무표.xlsx'
       a.click(); URL.revokeObjectURL(url)
     } catch { showMsg('내보내기 실패', false) }
     finally { setExporting(false) }
@@ -273,7 +313,7 @@ export default function ScheduleResultTab({ period }) {
   const days = Array.from({ length: NUM_DAYS }, (_, i) => i + 1)
 
   return (
-    <div className="flex flex-col flex-1 overflow-hidden">
+    <div className="flex flex-col flex-1 min-h-0">
 
       {/* 상단 바 */}
       <div className="bg-white border-b border-slate-100 px-4 py-3 flex items-center gap-4 flex-shrink-0">
@@ -287,11 +327,17 @@ export default function ScheduleResultTab({ period }) {
         <div className="flex items-center gap-2 flex-shrink-0">
           {scheduleData && (
             <>
-              <button onClick={handleEvaluate}
-                className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold rounded-lg transition-colors">
+              <button onClick={() => setShowStats(v => !v)}
+                className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg transition-colors ${showStats ? 'bg-indigo-600 text-white hover:bg-indigo-700' : 'bg-slate-100 hover:bg-slate-200 text-slate-700'}`}>
                 <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/>
-                  <line x1="6" y1="20" x2="6" y2="14"/>
+                  <line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/>
+                </svg>
+                통계
+              </button>
+              <button onClick={handleToggleEvaluate}
+                className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg transition-colors ${evalData ? 'bg-amber-500 text-white hover:bg-amber-600' : 'bg-slate-100 hover:bg-slate-200 text-slate-700'}`}>
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>
                 </svg>
                 평가
               </button>
@@ -347,31 +393,49 @@ export default function ScheduleResultTab({ period }) {
       )}
 
       {/* 평가 결과 */}
-      {evalData && (
-        <div className="bg-white border-b border-slate-100 px-4 py-3 flex items-center gap-4 flex-shrink-0">
-          <div className="w-10 h-10 rounded-xl flex items-center justify-center font-black text-lg bg-blue-50 text-blue-700 flex-shrink-0">
-            {evalData.grade}
+      {evalData && (() => {
+        const rf = evalData.request_fulfilled || {}
+        const rate = rf.rate ?? 0
+        const fulfilled = rf.fulfilled ?? 0
+        const total = rf.total ?? 0
+        const violCount = evalData.violation_details?.length ?? 0
+        const patternCount = Object.values(evalData.bad_patterns || {}).reduce((s, v) => s + (Array.isArray(v) ? v.length : 0), 0)
+        const rateColor = rate >= 90 ? '#15803D' : rate >= 75 ? '#D97706' : '#DC2626'
+        const StatItem = ({ value, label, sub, color }) => (
+          <div className="flex flex-col items-center justify-center text-center" style={{ minWidth: 56 }}>
+            <span className="font-black leading-none" style={{ fontSize: 18, color: color || '#1e293b' }}>{value}</span>
+            <span className="text-xs font-semibold text-slate-600 mt-0.5">{label}</span>
+            {sub && <span className="text-xs text-slate-400 leading-none mt-0.5">{sub}</span>}
           </div>
-          <div className="flex-1 min-w-0">
-            <p className="font-bold text-slate-800 text-sm">{evalData.score}점</p>
-            <p className="text-xs text-slate-400">규칙위반 {evalData.violation_details?.length ?? 0}건</p>
+        )
+        return (
+          <div className="bg-white border-b border-slate-100 px-4 py-2 flex items-stretch gap-0 flex-shrink-0">
+            <StatItem value={`${rate.toFixed(1)}%`} label="요청반영률" sub={`${fulfilled}/${total}건`} color={rateColor} />
+            <div className="w-px bg-slate-100 mx-3 self-stretch flex-shrink-0" />
+            <StatItem value={`${violCount}건`} label="규칙위반" color={violCount > 0 ? '#DC2626' : '#374151'} />
+            {patternCount > 0 && <>
+              <div className="w-px bg-slate-100 mx-3 self-stretch flex-shrink-0" />
+              <StatItem value={`${patternCount}건`} label="나쁜패턴" color="#D97706" />
+            </>}
+            {violCount > 0 && (
+              <div className="flex-1 min-w-0 hidden sm:flex items-center ml-3 pl-3 border-l border-slate-100">
+                <p className="text-xs text-red-500 truncate">
+                  {evalData.violation_details[0]}
+                  {violCount > 1 && <span className="text-slate-400"> 외 {violCount - 1}건</span>}
+                </p>
+              </div>
+            )}
           </div>
-          {evalData.violation_details?.length > 0 && (
-            <div className="text-xs text-red-500 max-w-xs hidden sm:block truncate">
-              {evalData.violation_details[0]}
-              {evalData.violation_details.length > 1 && ` 외 ${evalData.violation_details.length - 1}건`}
-            </div>
-          )}
-        </div>
-      )}
+        )
+      })()}
 
       {/* 근무표 그리드 */}
       {scheduleData && nurses.length > 0 ? (
-        <div className="flex-1 overflow-auto">
+        <div className="flex-1 min-h-0" style={{ overflowY: 'auto', overflowX: 'scroll' }}>
           <table className="text-xs border-collapse w-full" style={{ minWidth: 'max-content' }}>
-            <thead className="sticky top-0 z-10">
+            <thead>
               <tr>
-                <th className="sticky left-0 z-20 bg-slate-100 text-slate-600 px-3 py-2 text-left font-semibold border-b border-r border-slate-200 whitespace-nowrap" style={{ minWidth: 88 }}>
+                <th className="sticky top-0 left-0 z-30 bg-slate-100 text-slate-600 px-3 py-2 text-left font-semibold border-b border-r border-slate-200 whitespace-nowrap" style={{ minWidth: 88 }}>
                   이름
                 </th>
                 {days.map(d => {
@@ -379,54 +443,148 @@ export default function ScheduleResultTab({ period }) {
                   const isSat = wd === 5, isSun = wd === 6
                   const dateObj = getDate(startDate, d)
                   return (
-                    <th key={d} className="py-1.5 font-medium text-center border-b border-slate-200" style={{
+                    <th key={d} className="sticky top-0 z-10 py-1.5 font-medium text-center border-b border-r border-slate-200" style={{
                       minWidth: 42,
                       background: isSun ? '#fee2e2' : isSat ? '#eff6ff' : '#f8fafc',
                       color: isSun ? '#dc2626' : isSat ? '#2563eb' : '#64748b',
                     }}>
-                      <div style={{ fontSize: 10 }}>{mmdd(dateObj)}</div>
-                      <div style={{ fontSize: 10 }}>{WD[wd]}</div>
+                      <div style={{ fontSize: 11 }}>{mmdd(dateObj)}</div>
+                      <div style={{ fontSize: 11 }}>{WD[wd]}</div>
                     </th>
                   )
                 })}
+                {showStats && ['D', 'E', 'N', '총근무', '주말', '휴가잔여', '수면잔여'].map(h => (
+                  <th key={h} className="sticky top-0 z-10 py-1.5 font-semibold text-center border-b border-r border-slate-200 text-indigo-700"
+                    style={{ minWidth: 44, borderLeft: h === 'D' ? '2px solid #c7d2fe' : undefined, fontSize: 10, background: '#eef2ff' }}>
+                    {h}
+                  </th>
+                ))}
               </tr>
             </thead>
             <tbody>
               {nurses.map((nurse, ni) => {
                 const nurseShifts = scheduleData[nurse.id] || {}
+
+                // 통계 계산
+                let dCnt = 0, eCnt = 0, nCnt = 0, 중2Cnt = 0, vacUsed = 0, sleepUsed = 0
+                let wkWork = 0
+                days.forEach(d => {
+                  const s = nurseShifts[d] || nurseShifts[String(d)] || ''
+                  if (s === 'D' || s === 'D9' || s === 'D1') dCnt++
+                  else if (s === 'E') eCnt++
+                  else if (s === 'N') nCnt++
+                  else if (s === '중2' || s === '중1') 중2Cnt++
+                  else if (s === '휴가') vacUsed++
+                  else if (s === '수면') sleepUsed++
+                  const wd = getWd(startDate, d)
+                  if ((wd === 5 || wd === 6) && WORK_SET.has(s)) wkWork++
+                })
+                const totalWork = dCnt + eCnt + nCnt + 중2Cnt
+                const vacRemain = (nurse.vacation_days ?? 0) - vacUsed
+                const sleepEarned = (nCnt >= sleepNMonthly ? 1 : 0) + (nurse.pending_sleep ? 1 : 0)
+                const sleepRemain = sleepEarned - sleepUsed
+
                 return (
-                  <tr key={nurse.id} className="group hover:bg-blue-50/40 transition-colors">
-                    <td className="sticky left-0 z-10 px-3 py-1.5 font-medium whitespace-nowrap border-r border-b border-slate-100 bg-white group-hover:bg-blue-50/40 transition-colors text-slate-800">
+                  <tr key={nurse.id} className="group hover:bg-blue-100 transition-colors">
+                    <td className="sticky left-0 z-10 px-3 py-1.5 font-medium whitespace-nowrap border-r border-b border-slate-200 bg-white group-hover:bg-blue-100 transition-colors text-slate-800">
                       {nurse.name}
                     </td>
                     {days.map(d => {
                       const s = nurseShifts[d] || nurseShifts[String(d)] || ''
-                      const st = s ? sc(s) : null
                       const wd = getWd(startDate, d)
                       const isSat = wd === 5, isSun = wd === 6
                       const req = reqMap[nurse.id]?.[d]
-                      const matched = req && isReqMatch(s, req.codes, req.is_or)
-                      const cellBg = matched ? '#fef9c3' : isSun ? '#fef2f2' : isSat ? '#eff6ff' : undefined
+                      const hasReq = req?.codes?.some(c => !c.includes('제외'))
+                      const matched = hasReq && isReqMatch(s, req.codes, req.is_or)
+                      const unmatched = hasReq && !matched
+                      const reqLabel = unmatched ? req.codes.filter(c => !c.includes('제외')).join('/') : null
+                      const isWeeklyOff = s === '주'
+                      const textColor = s === 'N' ? '#B91C1C' : s === '주' ? '#854D0E' : '#374151'
                       return (
                         <td key={d}
-                          onClick={() => scheduleId && setEditCell({ nurseId: nurse.id, nurseObj: nurse, day: d })}
-                          className="text-center p-0.5 border-b border-r border-slate-100 cursor-pointer transition-colors"
-                          style={{ background: cellBg }}>
-                          {s ? (
-                            <span className="inline-flex items-center justify-center rounded font-semibold"
-                              style={{ background: st.bg, color: st.fg, border: `1px solid ${st.border}`, fontSize: 11, minWidth: 34, height: 22 }}>
-                              {s}
-                            </span>
-                          ) : (
-                            <span className="inline-block" style={{ minWidth: 34, height: 22 }} />
-                          )}
+                          onClick={() => !isWeeklyOff && scheduleId && setEditCell({ nurseId: nurse.id, nurseObj: nurse, day: d })}
+                          className={`text-center border-b border-r border-slate-200 transition-colors ${isWeeklyOff ? 'cursor-default' : 'cursor-pointer'}`}
+                          style={{
+                            background: hasReq ? '#fef9c3' : isSun ? '#fef2f2' : isSat ? '#eff6ff' : undefined,
+                            boxShadow: unmatched ? 'inset 0 0 0 2px #ef4444' : undefined,
+                            padding: '2px 1px',
+                          }}>
+                          <div className="flex flex-col items-center justify-center" style={{ minHeight: 22 }}>
+                            {s ? (
+                              <span className="font-semibold" style={{ color: textColor, fontSize: 11 }}>{s}</span>
+                            ) : null}
+                            {reqLabel && (
+                              <span style={{ fontSize: 8, color: '#ef4444', lineHeight: 1.2 }}>{reqLabel}</span>
+                            )}
+                          </div>
                         </td>
                       )
                     })}
+                    {showStats && [dCnt, eCnt, nCnt, totalWork, wkWork, vacRemain, sleepRemain].map((val, idx) => (
+                      <td key={idx} className="text-center border-b border-r border-slate-200 font-medium"
+                        style={{
+                          background: '#eef2ff',
+                          borderLeft: idx === 0 ? '2px solid #c7d2fe' : undefined,
+                          padding: '2px 4px',
+                          fontSize: 11,
+                          color: idx === 2 && val > 0 ? '#B91C1C'   // N: 빨간
+                               : idx === 5 && val <= 0 ? '#DC2626'   // 휴가잔여 0이하: 빨간
+                               : idx === 6 && val > 0 ? '#2563EB'    // 수면잔여 양수: 파란
+                               : '#374151',
+                        }}>
+                        {val !== 0 || idx >= 5 ? val : ''}
+                      </td>
+                    ))}
                   </tr>
                 )
               })}
             </tbody>
+            {showStats && (
+              <tfoot>
+                {['D', 'E', 'N', '중2'].map((shift, si) => (
+                  <tr key={shift}>
+                    <td className="sticky left-0 z-10 px-3 py-1 font-semibold text-indigo-700 border-r border-b border-slate-200 whitespace-nowrap"
+                      style={{
+                        fontSize: 11,
+                        background: '#eef2ff',
+                        borderTop: si === 0 ? '2px solid #c7d2fe' : undefined,
+                      }}>
+                      {shift} 인원
+                    </td>
+                    {days.map(d => {
+                      const cnt = nurses.filter(n => {
+                        const s = (scheduleData[n.id] || scheduleData[String(n.id)] || {})[d]
+                            || (scheduleData[n.id] || scheduleData[String(n.id)] || {})[String(d)] || ''
+                        return shift === 'D' ? (s === 'D' || s === 'D9' || s === 'D1')
+                             : shift === '중2' ? (s === '중2' || s === '중1')
+                             : s === shift
+                      }).length
+                      const wd = getWd(startDate, d)
+                      const isSat = wd === 5, isSun = wd === 6
+                      return (
+                        <td key={d} className="text-center border-b border-r border-slate-200 font-semibold"
+                          style={{
+                            fontSize: 11, padding: '2px 1px',
+                            borderTop: si === 0 ? '2px solid #c7d2fe' : undefined,
+                            background: isSun ? '#fce7f3' : isSat ? '#e0e7ff' : '#eef2ff',
+                            color: cnt === 0 ? '#ef4444' : '#4338ca',
+                          }}>
+                          {cnt}
+                        </td>
+                      )
+                    })}
+                    {[0,1,2,3,4,5,6].map(i => (
+                      <td key={i} className="border-b border-r border-slate-200"
+                        style={{
+                          background: '#eef2ff',
+                          borderLeft: i === 0 ? '2px solid #c7d2fe' : undefined,
+                          borderTop: si === 0 ? '2px solid #c7d2fe' : undefined,
+                        }} />
+                    ))}
+                  </tr>
+                ))}
+              </tfoot>
+            )}
           </table>
         </div>
       ) : !generating && (

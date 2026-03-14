@@ -218,7 +218,7 @@ def export_requests_excel(period_id: str, _: dict = Depends(get_current_admin)):
 
     # ── 행3: 이름 헤더 + 요일
     c1 = ws.cell(3, 1, "이름")
-    c1.font = Font(bold=True); c1.alignment = CENTER; c1.fill = HEADER_FILL; apply_border(c1)
+    c1.font = Font(bold=True, size=10); c1.alignment = CENTER; c1.fill = HEADER_FILL; apply_border(c1)
     for i in range(NUM_DAYS):
         d = start + timedelta(days=i)
         wd = d.weekday()
@@ -234,7 +234,7 @@ def export_requests_excel(period_id: str, _: dict = Depends(get_current_admin)):
         shifts_raw = req_map.get(nurse["id"], {})
 
         nc = ws.cell(row_idx, 1, nurse["name"])
-        nc.alignment = CENTER; apply_border(nc)
+        nc.font = Font(size=10); nc.alignment = CENTER; apply_border(nc)
 
         for i in range(NUM_DAYS):
             day = i + 1
@@ -248,7 +248,7 @@ def export_requests_excel(period_id: str, _: dict = Depends(get_current_admin)):
 
             if is_fixed_off:
                 cell.value = "주"
-                cell.fill = PatternFill("solid", fgColor="FFFFFF")
+                cell.fill = WEEKEND_FILL if wd >= 5 else PatternFill("solid", fgColor="FFFFFF")
                 cell.alignment = CENTER
                 cell.font = Font(size=9, color="666666")
             elif shifts_raw.get(day):

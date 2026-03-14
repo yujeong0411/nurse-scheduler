@@ -743,16 +743,24 @@ def solve_schedule(
                     for dd in range(max_cn + 1)) <= max_cn
             )
 
-    # ── H6. N 2연속 후 휴무 2개 ──
-    # ALL_OFF 모두 비근무로 인정
+    # ── H6. N 2연속 이상(NN/NNN) 블록 종료 후 휴무 ──
+    # 핵심: 블록 중간이 아닌 블록 끝(di)에서만 off_after 강제
+    # 조건: N[di] AND N[di-1] AND NOT N[di+1] → off at di+1..di+off_after
+    # CP-SAT 표현: N[di] + N[di-1] - N[di+1] - 1 <= ALL_OFF[di+1+k]
+    # → N[di+1]=1이면 좌변≤0 → 제약 비활성화(블록 계속 이어짐)
+    # → N[di+1]=0이면 좌변=1 → 휴무 강제(블록 종료)
     off_after = rules.off_after_2N
     for ni in range(num_nurses):
-        for di in range(num_days - 1):
+        for di in range(1, num_days):          # di >= 1: 이전 날(di-1) 존재
+            next_di = di + 1
+            n_next = shifts[(ni, next_di, _N)] if next_di < num_days else 0
             for k in range(off_after):
-                if di + 2 + k < num_days:
+                target = di + 1 + k
+                if target < num_days:
                     model.add(
-                        shifts[(ni, di, _N)] + shifts[(ni, di + 1, _N)] - 1
-                        <= sum(shifts[(ni, di + 2 + k, oi)] for oi in ALL_OFF)
+                        shifts[(ni, di, _N)] + shifts[(ni, di - 1, _N)]
+                        - n_next - 1
+                        <= sum(shifts[(ni, target, oi)] for oi in ALL_OFF)
                     )
 
     # ── H7. 월 N 제한 (6개) ──
@@ -1033,6 +1041,19 @@ def solve_schedule(
             model.add(menst_sum == max_menst)
         else:
             model.add(menst_sum == 0)
+
+        # 생휴: 달마다 최대 1회 (같은 달 두 개 방지)
+        if not nurse.is_male:
+            _distinct_months = {(start_date + timedelta(days=di)).month for di in range(num_days)}
+            for _month in _distinct_months:
+                _month_days = [di for di in range(num_days)
+                               if (start_date + timedelta(days=di)).month == _month]
+                _month_menst = sum(shifts[(ni, di, _생휴)] for di in _month_days)
+                _is_start_month = (start_date + timedelta(days=_month_days[0])).month == start_date.month
+                if nurse.menstrual_used and _is_start_month:
+                    model.add(_month_menst == 0)
+                else:
+                    model.add(_month_menst <= 1)
 
         # 수면: 조건 충족 시 1개 생성 (하드 제약)
         hard_sleep = hard_counts[_수면]
