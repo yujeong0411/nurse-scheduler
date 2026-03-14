@@ -45,6 +45,7 @@ Soft Constraints:
  S3. N 균등 배분 (-8)
  S4. 주말 균등 배분 (-8)
  S5. 일반 3명 이하 권고 (-3)
+ S6. N 연속 배정 보상 (+20/쌍) — N 블록 유도, N 휴무 N 패턴 억제
 """
 from datetime import date, timedelta
 from ortools.sat.python import cp_model
@@ -1381,6 +1382,14 @@ def solve_schedule(
                 jr_cnt = sum(shifts[(ni, di, si)] for ni in juniors)
                 model.add(over >= jr_cnt - rules.max_junior_per_shift)
                 obj.append(-3 * over)
+
+    # ── S6. N 연속 배정 보상 (+20/쌍) ──
+    # 연속된 N 쌍마다 보너스 → N 휴무 N 패턴 대신 N N N 블록 유도
+    for ni in range(num_nurses):
+        for di in range(num_days - 1):
+            pair = model.new_bool_var(f"n_pair_{ni}_{di}")
+            model.add_min_equality(pair, [shifts[(ni, di, _N)], shifts[(ni, di + 1, _N)]])
+            obj.append(20 * pair)
 
     # ── 목적함수 설정 ──
     if obj:
