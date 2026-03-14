@@ -4,6 +4,14 @@ from datetime import date, timedelta
 import holidays
 
 
+def _make_kr(years) -> holidays.HolidayBase:
+    """한국 법정 공휴일, 한국어 이름으로 반환"""
+    try:
+        return holidays.country_holidays('KR', years=years, language='ko')
+    except Exception:
+        return holidays.KR(years=years)
+
+
 def get_holidays_for_period(start_date: date, num_days: int = 28) -> list[tuple[date, str]]:
     """시작일~시작일+num_days 기간의 공휴일 [(date, name), ...] 반환
 
@@ -11,19 +19,19 @@ def get_holidays_for_period(start_date: date, num_days: int = 28) -> list[tuple[
     """
     end_date = start_date + timedelta(days=num_days - 1)
     years = {start_date.year, end_date.year}
-    kr = holidays.KR(years=years)
+    kr = _make_kr(years)
 
     result = []
     for offset in range(num_days):
         dt = start_date + timedelta(days=offset)
         if dt in kr:
-            result.append((dt, kr[dt]))  # actual date
+            result.append((dt, kr[dt]))
     return result
 
 
 def get_holidays_for_month(year: int, month: int) -> list[tuple[int, str]]:
     """해당 연월의 공휴일 [(day, name), ...] 반환 (하위 호환)"""
-    kr = holidays.KR(years=year)
+    kr = _make_kr(year)
     return sorted(
         (dt.day, name)
         for dt, name in kr.items()

@@ -22,31 +22,39 @@ export const SHIFT_GROUPS = [
   { label: "기타", color: "#6B7280", shifts: ["보수", "필수", "번표", "D제외", "E제외", "N제외"] },
 ];
 
+// 공통 팔레트
+const GRAY = { bg: "#F4F5F7", fg: "#4B5563", border: "#9CA3AF" };  // 휴무/기타
+const PINK = { bg: "#FFF0F3", fg: "#BE123C", border: "#FDA4AF" };  // 제외
+
 export const COLORS = {
-  "D":    { bg: "#F8FAFF", fg: "#1D4ED8", border: "#DBEAFE" },
-  "D9":   { bg: "#F8FAFF", fg: "#1E40AF", border: "#DBEAFE" },
-  "D1":   { bg: "#F8FAFF", fg: "#1E40AF", border: "#DBEAFE" },
-  "E":    { bg: "#FAF9FF", fg: "#6D28D9", border: "#EDE9FE" },
-  "N":    { bg: "#FFF8F8", fg: "#B91C1C", border: "#FEE2E2" },
-  "중2":  { bg: "#F7FEFF", fg: "#0E7490", border: "#CFFAFE" },
-  "중1":  { bg: "#F7FEFF", fg: "#155E75", border: "#CFFAFE" },
-  "주":   { bg: "#FFFEF5", fg: "#854D0E", border: "#FEF9C3" },
-  "OFF":  { bg: "#F9FAFB", fg: "#374151", border: "#E5E7EB" },
-  "POFF": { bg: "#F8FFF9", fg: "#166534", border: "#D1FAE5" },
-  "법휴": { bg: "#FFFCF8", fg: "#9A3412", border: "#FED7AA" },
-  "수면": { bg: "#F8F9FF", fg: "#3730A3", border: "#E0E7FF" },
-  "생휴": { bg: "#FFF8FF", fg: "#86198F", border: "#FAE8FF" },
-  "휴가": { bg: "#F8FFF9", fg: "#15803D", border: "#D1FAE5" },
-  "병가": { bg: "#F8FAFC", fg: "#334155", border: "#E2E8F0" },
-  "특휴": { bg: "#F8FFFD", fg: "#115E59", border: "#CCFBF1" },
-  "공가": { bg: "#FAFFF5", fg: "#3F6212", border: "#ECFCCB" },
-  "경가": { bg: "#FFFDF5", fg: "#78350F", border: "#FDE68A" },
-  "보수": { bg: "#FAFAF9", fg: "#44403C", border: "#E7E5E4" },
-  "필수": { bg: "#FFF8F9", fg: "#9F1239", border: "#FFE4E6" },
-  "번표": { bg: "#FFF8FF", fg: "#701A75", border: "#FAE8FF" },
-  "D제외": { bg: "#FFF8F8", fg: "#DC2626", border: "#FEE2E2" },
-  "E제외": { bg: "#FAF9FF", fg: "#7C3AED", border: "#EDE9FE" },
-  "N제외": { bg: "#FFF8F9", fg: "#BE123C", border: "#FFE4E6" },
+  // 근무
+  "D":    { bg: "#F0FDF4", fg: "#15803D", border: "#86EFAC" },  // 초록
+  "D9":   { bg: "#F0F9FF", fg: "#0369A1", border: "#7DD3FC" },  // 하늘
+  "D1":   { bg: "#F0F9FF", fg: "#0369A1", border: "#7DD3FC" },
+  "중2":  { bg: "#F0F9FF", fg: "#0369A1", border: "#7DD3FC" },
+  "중1":  { bg: "#F0F9FF", fg: "#0369A1", border: "#7DD3FC" },
+  "E":    { bg: "#FAF5FF", fg: "#7E22CE", border: "#C4B5FD" },  // 보라
+  "N":    { bg: "#FFF1F2", fg: "#BE123C", border: "#FCA5A5" },  // 빨강
+  // 휴무 10종
+  "주":   { bg: "#FFFEF5", fg: "#854D0E", border: "#FEF9C3" },  // 주휴는 유지
+  "OFF":  GRAY,
+  "POFF": GRAY,
+  "법휴": GRAY,
+  "수면": GRAY,
+  "생휴": GRAY,
+  "휴가": GRAY,
+  "병가": GRAY,
+  "특휴": GRAY,
+  "공가": GRAY,
+  "경가": GRAY,
+  // 기타
+  "보수": GRAY,
+  "필수": GRAY,
+  "번표": GRAY,
+  // 제외
+  "D제외": PINK,
+  "E제외": PINK,
+  "N제외": PINK,
 };
 
 export function sc(s) {

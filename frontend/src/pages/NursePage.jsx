@@ -125,7 +125,8 @@ export default function NursePage() {
   const passed = dlPassed(deadline)
   const endStr = startDate ? fmtDate(new Date(new Date(startDate).getTime() + 27 * 86400000)) : ''
 
-  const startWd = startDate ? getWd(startDate, 1) : 0
+  // 일요일 시작 달력 (Sun=0, Mon=1, ..., Sat=6)
+  const startWd = startDate ? new Date(startDate).getDay() : 0
   const cells = []
   for (let i = 0; i < startWd; i++) cells.push(null)
   for (let d = 1; d <= NUM_DAYS; d++) cells.push(d)
@@ -306,21 +307,21 @@ export default function NursePage() {
           )}
 
           {/* 달력 */}
-          <div className="bg-slate-50 rounded-2xl overflow-hidden border border-slate-200 shadow-sm">
-            {/* 요일 헤더 */}
-            <div className="grid grid-cols-7 px-2 pt-2.5 pb-1.5">
-              {WD.map((wd, i) => (
+          <div className="bg-white rounded-2xl overflow-hidden border border-slate-100 shadow-sm">
+            {/* 요일 헤더 (일요일 시작) */}
+            <div className="grid grid-cols-7 pt-3 pb-2">
+              {['일','월','화','수','목','금','토'].map((label, i) => (
                 <div key={i} className="text-center text-xs font-black"
-                  style={{ color: i === 6 ? '#F87171' : i === 5 ? '#60A5FA' : '#94A3B8', letterSpacing: '0.05em' }}>
-                  {wd}
+                  style={{ color: i === 0 ? '#F87171' : i === 6 ? '#60A5FA' : '#94A3B8', letterSpacing: '0.05em' }}>
+                  {label}
                 </div>
               ))}
             </div>
             {/* 날짜 셀 */}
-            <div className="grid grid-cols-7" style={{ gap: '2px', background: '#EEF2F7', padding: '2px' }}>
+            <div className="grid grid-cols-7 gap-px bg-slate-100 border-t border-slate-100">
               {cells.map((day, i) => {
-                if (!day) return <div key={i} className="rounded-xl bg-white/60" style={{ minHeight: 72 }} />
-                const wd = getWd(startDate, day)
+                if (!day) return <div key={i} className="bg-slate-50" style={{ minHeight: 84 }} />
+                const wd = getWd(startDate, day) // Mon=0..Sun=6
                 const isSat = wd === 5, isSun = wd === 6
                 const isHol = (effectiveRules.public_holidays || []).includes(day)
                 const s = shifts[day] || ''
@@ -331,49 +332,48 @@ export default function NursePage() {
                 const fixedWd = (nurseForValidate?.fixed_weekly_off != null && nurseForValidate?.fixed_weekly_off !== '')
                   ? parseInt(nurseForValidate.fixed_weekly_off) : -1
                 const isFixedOff = (!isNaN(fixedWd) && fixedWd >= 0 && wd === fixedWd)
-                const dateColor = isSat ? '#3B82F6' : (isSun || isHol) ? '#EF4444' : '#64748B'
-                const baseBg = (isSun || isHol) ? '#FFF5F5' : isSat ? '#F5F8FF' : '#FFFFFF'
+                const isRed = isSun || isHol
+                const dateColor = isSat ? '#3B82F6' : isRed ? '#EF4444' : '#475569'
+                const cellBg = isRed ? '#FFF5F5' : isSat ? '#F5F8FF' : '#FFFFFF'
                 const holName = holidayNames[day]
 
                 // 고정 주휴 — 회색 처리, 건들지 못한다는 느낌
                 if (isFixedOff) {
                   return (
-                    <div key={i} className="flex flex-col items-center pt-2 rounded-xl cursor-not-allowed select-none"
-                      style={{ minHeight: 72, background: '#F1F5F9' }}>
-                      <span className="text-xs font-semibold" style={{ color: '#94A3B8' }}>{mmdd(dateObj)}</span>
-                      <span className="mt-1.5 font-bold text-sm leading-none" style={{ color: '#94A3B8' }}>주</span>
-                      <span className="mt-1" style={{ fontSize: 10, color: '#CBD5E1' }}>━━</span>
+                    <div key={i} className="flex flex-col pt-2 px-1 pb-1.5 cursor-not-allowed select-none"
+                      style={{ minHeight: 84, background: '#F8FAFC' }}>
+                      <span className="text-xs font-semibold text-center w-full" style={{ color: '#94A3B8' }}>{mmdd(dateObj)}</span>
+                      <span className="flex-1 flex items-center justify-center w-full font-bold text-sm" style={{ color: '#94A3B8' }}>주</span>
                     </div>
                   )
                 }
-
-                const cellBg = s ? st.bg : baseBg
 
                 return (
                   <button key={i}
                     onClick={() => { if (!passed) setPicker({ day }) }}
                     disabled={passed}
-                    className="flex flex-col items-center pt-2 transition-all active:scale-95 relative rounded-xl"
-                    style={{ minHeight: 72, background: cellBg }}>
-                    <span className="text-xs font-bold leading-none" style={{ color: s ? st.fg + 'bb' : dateColor }}>{mmdd(dateObj)}</span>
-                    {holName && !s && (
-                      <span className="text-center leading-tight font-semibold mt-0.5"
-                        style={{ fontSize: 8, color: '#EF4444', maxWidth: '90%', lineHeight: '1.1' }}>
+                    className="flex flex-col pt-2 px-1 pb-1.5 transition-all active:scale-95 relative"
+                    style={{ minHeight: 84, background: cellBg }}>
+                    {/* 날짜 */}
+                    <span className="text-xs font-bold leading-none text-center w-full" style={{ color: dateColor }}>{mmdd(dateObj)}</span>
+                    {/* 공휴일 이름 */}
+                    {holName && (
+                      <span className="mt-0.5 text-center font-semibold leading-tight w-full"
+                        style={{ fontSize: 7.5, color: '#F87171', lineHeight: 1.1 }}>
                         {holName}
                       </span>
                     )}
+                    {/* 근무 뱃지 or + 버튼 */}
                     {s ? (
-                      <span className="mt-1 font-black text-base leading-none" style={{ color: st.fg }}>{s}</span>
-                    ) : (
-                      <span className="mt-1.5 flex items-center justify-center rounded-full"
-                        style={{ width: 22, height: 22, background: (isSun || isHol) ? '#FEE2E2' : isSat ? '#DBEAFE' : '#F1F5F9', color: (isSun || isHol) ? '#FCA5A5' : isSat ? '#93C5FD' : '#CBD5E1', fontSize: 14, fontWeight: 700 }}>+</span>
-                    )}
-                    {holName && s && (
-                      <span className="font-semibold mt-0.5"
-                        style={{ fontSize: 8, color: st.fg + 'aa', maxWidth: '90%', textAlign: 'center', lineHeight: '1.1' }}>
-                        {holName}
+                      <span className="mt-1.5 flex-1 w-full flex items-center justify-center rounded-xl font-black"
+                        style={{ fontSize: s.endsWith('제외') ? 11 : 14, background: st.bg, color: st.fg, border: `1.5px solid ${st.border}`, minHeight: 36 }}>
+                        {s}
                       </span>
+                    ) : (
+                      <span className="mt-1.5 flex-1 w-full flex items-center justify-center rounded-xl font-bold"
+                        style={{ background: isRed ? '#FEE2E2' : isSat ? '#DBEAFE' : '#F1F5F9', color: isRed ? '#FCA5A5' : isSat ? '#93C5FD' : '#CBD5E1', fontSize: 18, minHeight: 36 }}>+</span>
                     )}
+                    {/* 위반 경고 */}
                     {vs.length > 0 && (
                       <span className="absolute top-1 right-1 bg-red-500 text-white rounded-full flex items-center justify-center font-black"
                         style={{ width: 14, height: 14, fontSize: 8 }}>!</span>

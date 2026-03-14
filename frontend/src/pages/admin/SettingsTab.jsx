@@ -48,10 +48,38 @@ function ToggleRow({ label, desc, value, onChange }) {
   )
 }
 
+// 기간 인덱스 배열 → "M/D, M/D" 문자열
+function indicesToText(indices, startDate) {
+  if (!startDate || !indices?.length) return ''
+  return indices.map(idx => {
+    const d = new Date(new Date(startDate).getTime() + (idx - 1) * 86400000)
+    return `${d.getMonth() + 1}/${d.getDate()}`
+  }).join(', ')
+}
+
+// "M/D, M/D" 문자열 → 기간 인덱스 배열
+function textToIndices(text, startDate) {
+  if (!text.trim() || !startDate) return []
+  const start = new Date(startDate)
+  return text.split(',').flatMap(s => {
+    const m = s.trim().match(/^(\d{1,2})\/(\d{1,2})$/)
+    if (m) {
+      const mo = parseInt(m[1]), dy = parseInt(m[2])
+      for (let i = 0; i < 28; i++) {
+        const dt = new Date(start.getTime() + i * 86400000)
+        if (dt.getMonth() + 1 === mo && dt.getDate() === dy) return [i + 1]
+      }
+      return []
+    }
+    return []
+  })
+}
+
 export default function SettingsTab({ period, onPeriodSaved }) {
   const [sd, setSd] = useState('')
   const [dl, setDl] = useState('')
   const [rules, setRules] = useState(null)
+  const [rawHolidays, setRawHolidays] = useState([])
   const [holidayText, setHolidayText] = useState('')
   const [scheduleMsg, setScheduleMsg] = useState({ text: '', ok: true })
   const [rulesMsg, setRulesMsg] = useState({ text: '', ok: true })
@@ -64,11 +92,16 @@ export default function SettingsTab({ period, onPeriodSaved }) {
     rulesApi.get()
       .then(rRes => {
         setRules(rRes.data)
-        setHolidayText((rRes.data.public_holidays || []).join(', '))
+        setRawHolidays(rRes.data.public_holidays || [])
       })
       .catch(() => {})
       .finally(() => setLoading(false))
   }, [])
+
+  // rawHolidays 또는 sd가 바뀔 때 holidayText 재계산
+  useEffect(() => {
+    setHolidayText(indicesToText(rawHolidays, sd))
+  }, [rawHolidays, sd])
 
   // period prop이 바뀌면 날짜/마감 동기화 (datetime-local은 "YYYY-MM-DDTHH:MM" 형식 필요)
   useEffect(() => {
@@ -95,16 +128,13 @@ export default function SettingsTab({ period, onPeriodSaved }) {
   }
 
   const handleRulesSave = async () => {
-    // holidayText → 배열 파싱
-    const holidays = holidayText.split(',')
-      .map(s => parseInt(s.trim()))
-      .filter(n => !isNaN(n) && n >= 1 && n <= 31)
+    const holidays = textToIndices(holidayText, sd)
     const payload = { ...rules, public_holidays: holidays }
     setSavingRules(true)
     try {
       await rulesApi.update(payload)
       setRules(payload)
-      setHolidayText(holidays.join(', '))
+      setRawHolidays(holidays)
       setRulesMsg({ text: '저장되었습니다', ok: true })
     } catch (e) {
       setRulesMsg({ text: e.response?.data?.detail || '저장 실패', ok: false })
@@ -135,20 +165,20 @@ export default function SettingsTab({ period, onPeriodSaved }) {
         res.data.forEach(h => allHolidays.push({ year: y, month: m, day: h.day }))
       }
 
-      // 기간 내 공휴일의 실제 날짜(일) 수집
-      const periodDays = []
+      // 기간 내 공휴일을 "M/D" 형식으로 수집
+      const dateStrings = []
       for (let i = 0; i < 28; i++) {
         const d = new Date(start.getTime() + i * 86400000)
         const hit = allHolidays.some(h =>
           h.year === d.getFullYear() && h.month === d.getMonth() + 1 && h.day === d.getDate()
         )
-        if (hit) periodDays.push(d.getDate())
+        if (hit) dateStrings.push(`${d.getMonth() + 1}/${d.getDate()}`)
       }
 
-      if (periodDays.length === 0) {
+      if (dateStrings.length === 0) {
         alert('해당 기간에 법정공휴일이 없습니다.')
       } else {
-        setHolidayText(periodDays.join(', '))
+        setHolidayText(dateStrings.join(', '))
       }
     } catch { alert('공휴일 조회 실패') }
     finally { setDetectingHolidays(false) }
@@ -280,11 +310,11 @@ export default function SettingsTab({ period, onPeriodSaved }) {
             <span className="text-sm font-semibold text-slate-700">법정공휴일</span>
           </div>
           <div className="p-4 space-y-3">
-            <p className="text-xs text-slate-400">공휴일 날짜 입력 (쉼표 구분, 예: 1, 15, 25)</p>
+            <p className="text-xs text-slate-400">공휴일 날짜 입력 (쉼표 구분, 예: 4/1, 5/5)</p>
             <div className="flex gap-2">
               <input
                 value={holidayText}
-                placeholder="예: 1, 5, 15"
+                placeholder="예: 4/1, 5/5"
                 onChange={e => setHolidayText(e.target.value)}
                 className="input flex-1"
               />
@@ -295,27 +325,6 @@ export default function SettingsTab({ period, onPeriodSaved }) {
                 {detectingHolidays ? '조회 중...' : '자동 감지'}
               </button>
             </div>
-            {holidayText && (
-              <div className="flex flex-wrap gap-1.5">
-                {holidayText.split(',').map(s => parseInt(s.trim())).filter(n => !isNaN(n) && n >= 1 && n <= 31).map(dayNum => {
-                  // start_date가 있으면 28일 범위에서 해당 calendar day를 찾아 월 표시
-                  let label = `${dayNum}일`
-                  if (sd) {
-                    const start = new Date(sd)
-                    for (let i = 0; i < 28; i++) {
-                      const d = new Date(start.getTime() + i * 86400000)
-                      if (d.getDate() === dayNum) {
-                        label = `${d.getMonth() + 1}월 ${dayNum}일`
-                        break
-                      }
-                    }
-                  }
-                  return (
-                    <span key={dayNum} className="px-2 py-0.5 bg-orange-50 text-orange-700 border border-orange-200 rounded-full text-xs font-semibold">{label}</span>
-                  )
-                })}
-              </div>
-            )}
           </div>
         </div>
 

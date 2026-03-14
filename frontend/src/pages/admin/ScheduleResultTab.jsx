@@ -316,14 +316,16 @@ export default function ScheduleResultTab({ period }) {
     <div className="flex flex-col flex-1 min-h-0">
 
       {/* 상단 바 */}
-      <div className="bg-white border-b border-slate-100 px-4 py-3 flex items-center gap-4 flex-shrink-0">
+      <div className="bg-white border-b border-slate-100 px-4 py-3 flex-shrink-0 flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-4">
+        {/* 기간 텍스트 */}
         <div className="flex-1 min-w-0">
           {startDate
-            ? <p className="font-bold text-slate-800 text-sm">{fmtDate(startDate)} ~ {endStr}</p>
+            ? <p className="font-bold text-slate-800 text-sm truncate">{fmtDate(startDate)} ~ {endStr}</p>
             : <p className="text-slate-400 text-sm">시작일을 먼저 설정해주세요.</p>
           }
           {scheduleData && <p className="text-xs text-slate-400 mt-0.5">{nurses.length}명 · 셀 클릭으로 편집</p>}
         </div>
+        {/* 버튼 묶음 */}
         <div className="flex items-center gap-2 flex-shrink-0">
           {scheduleData && (
             <>
