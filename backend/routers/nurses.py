@@ -212,7 +212,7 @@ def import_prev_excel(
         sys.path.insert(0, root)
     from engine.models import is_pair_first_month
     from engine.excel_io import import_prev_schedule, detect_file_month, import_prev_menstrual
-    from datetime import date
+    from datetime import date, timedelta
 
     db = get_db()
 
@@ -222,6 +222,7 @@ def import_prev_excel(
         date.fromisoformat(active_period["start_date"])
         if active_period and active_period.get("start_date") else None
     )
+    expected_prev = (new_start_date - timedelta(days=28)) if new_start_date else None
 
     content = file.file.read()
     tmp = tempfile.NamedTemporaryFile(suffix=".xlsx", delete=False)
@@ -235,12 +236,12 @@ def import_prev_excel(
 
         TAIL_DAYS = 5
         tail_result, n_counts, sleep_counts, vac_days = import_prev_schedule(
-            tmp_path, nurse_names, TAIL_DAYS
+            tmp_path, nurse_names, TAIL_DAYS, expected_start_date=expected_prev
         )
 
-        # 이전 근무표 시작일 탐지 (생휴 월 계산용)
+        # 이전 근무표 시작일 탐지 (생휴 월 계산용) — 타이틀 셀 "YYYY.MM.DD ~ ..." 기준
         year, month = detect_file_month(tmp_path)
-        prev_start_date = date(year, month, 1) if year and month else None
+        prev_start_date = date(year, month, 1) if year and month else expected_prev
 
         # 생휴 월별 집계
         menstrual_counts = (
@@ -252,9 +253,12 @@ def import_prev_excel(
         rules_res = db_rules(db).execute()
         sleep_n_monthly = rules_res.data[0].get("sleep_n_monthly", 7) if rules_res.data else 7
 
+    except ValueError as e:
+        os.unlink(tmp_path)
+        raise HTTPException(400, f"파일 검증 실패: {e}")
     except Exception as e:
         os.unlink(tmp_path)
-        raise HTTPException(400, f"엑셀 파싱 실패: {e}")
+        raise HTTPException(400, f"엑셀 파싱 오류: {e}")
     finally:
         try:
             os.unlink(tmp_path)
@@ -298,9 +302,20 @@ def import_prev_excel(
 
     matched = len(results)
     total = len(nurses_res.data)
+
+    if matched == 0:
+        raise HTTPException(400,
+            "간호사 이름이 매칭되지 않습니다.\n"
+            "올바른 이전 달 근무표 파일인지 확인해주세요."
+        )
+
+    warning = ""
+    if total > 0 and matched < total // 2:
+        warning = f" ⚠️ {total - matched}명 미매칭 — 파일을 확인하세요"
+
     return ApplyPrevResult(
         nurses=results,
-        summary=f"{matched}/{total}명 엑셀에서 업데이트 완료",
+        summary=f"{matched}/{total}명 엑셀에서 업데이트 완료{warning}",
     )
 
 

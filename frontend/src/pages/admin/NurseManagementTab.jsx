@@ -169,7 +169,8 @@ export default function NurseManagementTab() {
     setApplying(true)
     try {
       const res = await nursesApi.importPrevExcel(file)
-      showMsg(`✓ ${res.data.summary}`); load()
+      const hasWarning = res.data.summary.includes('⚠️')
+      showMsg(res.data.summary, !hasWarning, hasWarning ? 6000 : 2500); load()
     } catch (err) {
       showMsg(err.response?.data?.detail || '엑셀 반영 실패', false)
     } finally { setApplying(false) }

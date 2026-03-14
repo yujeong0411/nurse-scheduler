@@ -58,7 +58,7 @@ export const nursesApi = {
 
 // ── 설정·규칙 ─────────────────────────────────────
 export const settingsApi = {
-  get:            () => api.get('/settings'),
+  get:            (config) => api.get('/settings', config),
   update:         (data) => api.put('/settings', data),
   listPeriods:    () => api.get('/settings/periods'),
   getPeriod:      (id) => api.get(`/settings/${id}`),

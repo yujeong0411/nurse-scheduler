@@ -843,6 +843,7 @@ def import_prev_schedule(
     nurse_names: list[str],
     tail_days: int = 5,
     password: str | None = None,
+    expected_start_date=None,
 ) -> tuple[dict[str, list[str]], dict[str, int], dict[str, int], dict[str, int]]:
     """이전 달 근무표 엑셀에서 마지막 tail_days일의 근무 + 전체 N 횟수 + 수면 횟수 + 휴가잔여 추출
 
@@ -868,9 +869,40 @@ def import_prev_schedule(
     result = _find_day_columns(ws)
     if result is None:
         wb.close()
-        return {}, {}, {}
+        raise ValueError(
+            "날짜 열(1~28일)을 찾을 수 없습니다. "
+            "이전 달 근무표 엑셀 파일이 아닙니다."
+        )
 
     header_row, day_cols, name_col, data_start = result
+
+    if len(day_cols) < 20:
+        wb.close()
+        raise ValueError(
+            f"날짜 열이 {len(day_cols)}개뿐입니다 (최소 20개 필요). "
+            "28일 근무표 형식의 파일이 아닙니다."
+        )
+
+    # ── 첫 번째 컬럼의 실제 날짜(일) 값으로 기간 검증 ──
+    if expected_start_date is not None:
+        min_col = min(day_cols.values())
+        first_cal_day = None
+        for row in ws.iter_rows(min_row=header_row, max_row=header_row):
+            for cell in row:
+                if cell.column == min_col:
+                    val = str(cell.value).strip() if cell.value else ""
+                    raw = val[:-1].strip() if val.endswith("일") else val
+                    try:
+                        first_cal_day = int(raw)
+                    except ValueError:
+                        pass
+        if first_cal_day is not None and first_cal_day != expected_start_date.day:
+            wb.close()
+            raise ValueError(
+                f"파일 시작일({first_cal_day}일)이 직전 기간 시작일({expected_start_date.day}일)과 다릅니다.\n"
+                f"직전 기간({expected_start_date.year}년 {expected_start_date.month}월 "
+                f"{expected_start_date.day}일 시작) 근무표를 업로드해 주세요."
+            )
 
     max_day = max(day_cols.keys())
     all_day_range = sorted(day_cols.keys())
@@ -1005,24 +1037,14 @@ def import_prev_menstrual(
 def detect_file_month(filepath: str, password: str | None = None) -> tuple[int | None, int | None]:
     """엑셀 파일에서 연도/월 정보를 탐지
 
-    파일명 → 파일 내용 순으로 검색.
+    파일 내용(셀 텍스트)에서 검색.
     고신뢰 패턴(YYYY.MM, YYYY년 M월)을 먼저 시도하고,
     없으면 짧은 셀에서 "X월" 패턴을 탐색.
 
     Returns:
         (year, month) — 탐지 실패 시 각각 None
     """
-    import os
-
-    # ── 1단계: 파일명에서 탐지 ──
-    filename = os.path.basename(filepath)
-    m = re.search(r'(\d{4})\s*[년._\-]\s*(\d{1,2})', filename)
-    if m:
-        y, mo = int(m.group(1)), int(m.group(2))
-        if 1 <= mo <= 12 and 2000 <= y <= 2099:
-            return y, mo
-
-    # ── 2단계: 파일 내용에서 탐지 ──
+    # ── 파일 내용에서 탐지 ──
     wb = load_workbook_safe(filepath, password, read_only=True, data_only=True)
     ws = wb.active
 
