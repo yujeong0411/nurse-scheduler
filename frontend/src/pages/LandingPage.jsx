@@ -48,7 +48,7 @@ export default function LandingPage() {
         {!loading && startDate && (
           <div className="w-full max-w-sm mb-8 rounded-2xl p-4"
             style={{ background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.15)' }}>
-            <p className="text-blue-300 text-xs font-semibold uppercase tracking-widest mb-2 text-center">신청 기간</p>
+            <p className="text-blue-300 text-sm font-semibold uppercase tracking-widest mb-2 text-center">근무 일정</p>
             <p className="text-white font-bold text-lg text-center mb-3">
               {fmtDate(startDate)} ~ {endStr}
             </p>
@@ -57,7 +57,15 @@ export default function LandingPage() {
                   ? 'bg-red-500/20 text-red-300 border border-red-500/30'
                   : 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
                 }`}>
-                <span>{passed ? '⛔' : '⏰'}</span>
+                {passed ? (
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/>
+                  </svg>
+                ) : (
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/><line x1="4" y1="22" x2="4" y2="15"/>
+                  </svg>
+                )}
                 <span>{passed ? '신청 마감됨' : `마감 ${fmtDate(deadline)}`}</span>
               </div>
             )}
@@ -75,7 +83,7 @@ export default function LandingPage() {
         <div className="w-full max-w-sm space-y-3">
           <button
             onClick={() => navigate('/nurse/login')}
-            className="w-full bg-white text-blue-700 font-bold text-lg rounded-2xl py-5 flex items-center justify-center gap-3 active:scale-95 transition-all shadow-2xl hover:bg-blue-50"
+            className="w-full bg-white text-blue-700 font-bold text-lg rounded-2xl py-5 flex items-center justify-center gap-3 active:scale-95 transition-all shadow-2xl hover:bg-blue-50 hover:scale-[1.02]"
           >
             <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
@@ -89,7 +97,7 @@ export default function LandingPage() {
 
           <button
             onClick={() => navigate('/admin/login')}
-            className="w-full text-white font-semibold text-base rounded-2xl py-4 flex items-center justify-center gap-2 active:scale-95 transition-all"
+            className="w-full text-white font-semibold text-lg rounded-2xl py-4 flex items-center justify-center gap-2 active:scale-95 transition-all hover:scale-[1.02] hover:brightness-125"
             style={{ background: 'rgba(255,255,255,0.1)', border: '1px solid rgba(255,255,255,0.2)' }}
           >
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -106,10 +114,12 @@ export default function LandingPage() {
         style={{ borderTop: '1px solid rgba(255,255,255,0.08)' }}>
         <div className="max-w-sm mx-auto text-center">
           <p className="text-xs" style={{ color: 'rgba(255,255,255,0.35)' }}>
-            © 2026 Nurse Scheduler · Contact:{' '}
-            <a href="mailto:choiyujeong0411@gmail.com" className="hover:underline">
-              choiyujeong0411@gmail.com
-            </a>
+            <span className="inline-block">© 2026 Nurse Scheduler · </span>
+            <span className="inline-block">Contact:{' '}
+              <a href="mailto:choiyujeong0411@gmail.com" className="hover:underline">
+                choiyujeong0411@gmail.com
+              </a>
+            </span>
           </p>
         </div>
       </footer>

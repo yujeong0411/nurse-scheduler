@@ -296,6 +296,17 @@ export default function SubmissionsTab({ period }) {
               </button>
             </div>
             <NurseInfoBadges nurse={nurse} />
+            {(() => {
+              const note = allRequestsRef.current[nurseId]?.[day]?.note
+              return note ? (
+                <div className="mt-2 flex items-start gap-1.5 px-2.5 py-2 rounded-xl bg-amber-50 border border-amber-200">
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#D97706" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="flex-shrink-0 mt-0.5">
+                    <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+                  </svg>
+                  <span className="text-xs text-amber-800 leading-relaxed">{note}</span>
+                </div>
+              ) : null
+            })()}
           </div>
 
           {/* 근무 선택 */}

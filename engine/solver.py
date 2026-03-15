@@ -788,11 +788,9 @@ def solve_schedule(
         return span is not None and span[0] <= di <= span[1]
 
     # ── 공휴일 날짜 인덱스 사전 계산 (H8 필터링에서도 사용) ──
+    # rules.public_holidays는 스케줄 위치(1-28) → 0-indexed di로 변환
     _holiday_days = set(rules.public_holidays)
-    public_holiday_dis = {
-        di for di in range(num_days)
-        if (start_date + timedelta(days=di)).day in _holiday_days
-    }
+    public_holiday_dis = {h - 1 for h in _holiday_days if 1 <= h <= num_days}
 
     # ── H8. 확정 요청 ──
     # 각 요청 코드를 해당 인덱스로 직접 매핑

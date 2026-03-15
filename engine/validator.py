@@ -256,6 +256,8 @@ def validate_change(
             violations.append(
                 f"{day}일은 법정공휴일: 법휴 또는 주만 가능"
             )
+    if new_shift == "법휴" and day not in rules.public_holidays:
+        violations.append(f"{day}일은 법정공휴일이 아님: 법휴 배정 불가")
 
     # ── 14. 주4일제 ──
     if nurse.is_4day_week and is_work and old_shift not in WORK_SHIFTS:

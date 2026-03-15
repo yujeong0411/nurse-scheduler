@@ -24,7 +24,7 @@ export const SHIFT_GROUPS = [
 
 // 공통 팔레트
 const GRAY = { bg: "#F4F5F7", fg: "#4B5563", border: "#9CA3AF" };  // 휴무/기타
-const PINK = { bg: "#FFF0F3", fg: "#BE123C", border: "#FDA4AF" };  // 제외
+const EXCL = { bg: "#FFF7ED", fg: "#C2410C", border: "#FDBA74" };  // 제외 (오렌지)
 
 export const COLORS = {
   // 근무
@@ -52,9 +52,9 @@ export const COLORS = {
   "필수": GRAY,
   "번표": GRAY,
   // 제외
-  "D제외": PINK,
-  "E제외": PINK,
-  "N제외": PINK,
+  "D제외": EXCL,
+  "E제외": EXCL,
+  "N제외": EXCL,
 };
 
 export function sc(s) {
