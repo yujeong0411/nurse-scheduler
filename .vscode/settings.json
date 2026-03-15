@@ -1,8 +1,0 @@
-{
-  "workbench.panel.defaultLocation": "right",
-  "workbench.editorAssociations": {
-    "*.parquet": "duckdb.dataFileViewer",
-    "*.csv": "duckdb.dataFileViewer",
-    "*.tsv": "duckdb.dataFileViewer"
-  }
-}

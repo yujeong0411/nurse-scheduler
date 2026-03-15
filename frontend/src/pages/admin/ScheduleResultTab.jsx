@@ -394,7 +394,7 @@ export default function ScheduleResultTab({ period }) {
             </>
           )}
           <button onClick={handleGenerate} disabled={generating || !startDate}
-            className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold rounded-lg transition-colors disabled:opacity-50">
+            className="flex items-center gap-1.5 px-3 py-1.5 text-white text-xs font-semibold rounded-lg transition-colors disabled:opacity-50" style={{ background: '#2A3A7A' }}>
             {generating ? (
               <div className="w-3.5 h-3.5 border-2 border-white/40 border-t-white rounded-full animate-spin" />
             ) : (

@@ -53,7 +53,7 @@ export default function PinModal({ onClose }) {
                     onChange={e => { set(e.target.value.replace(/\D/g, '')); setErr(null) }}
                     onKeyDown={e => e.key === 'Enter' && handleSave()}
                     placeholder="숫자 PIN 입력"
-                    className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:border-transparent" style={{ '--tw-ring-color': '#2A3A7A' }}
                   />
                 </div>
               ))}
@@ -69,7 +69,7 @@ export default function PinModal({ onClose }) {
                 취소
               </button>
               <button onClick={handleSave} disabled={saving}
-                className="flex-1 py-2.5 rounded-xl text-sm font-bold text-white bg-blue-600 hover:bg-blue-700 transition-colors disabled:opacity-50">
+                className="flex-1 py-2.5 rounded-xl text-sm font-bold text-white transition-colors disabled:opacity-50" style={{ background: '#2A3A7A' }}>
                 {saving ? '변경 중...' : '변경'}
               </button>
             </div>

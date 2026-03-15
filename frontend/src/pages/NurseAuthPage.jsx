@@ -41,12 +41,12 @@ export default function NurseAuthPage() {
 
   return (
     <div className="min-h-screen flex flex-col" style={{
-      background: 'linear-gradient(145deg, #0F172A 0%, #1E3A8A 50%, #1D4ED8 100%)'
+      background: 'linear-gradient(145deg, #A8C8B4 0%, #8EADD4 45%, #E4C49A 80%, #C4A0BC 100%)'
     }}>
       {/* 뒤로가기 */}
       <div className="p-5">
         <button onClick={() => navigate('/')}
-          className="flex items-center gap-2 text-blue-300 hover:text-white transition-colors text-sm font-medium">
+          className="flex items-center gap-2 transition-colors text-sm font-medium" style={{ color: '#2A3A7A' }}>
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
             <polyline points="15 18 9 12 15 6" />
           </svg>
@@ -58,14 +58,14 @@ export default function NurseAuthPage() {
         {/* 헤더 */}
         <div className="text-center mb-8">
           <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl mb-5"
-            style={{ background: 'rgba(255,255,255,0.12)', border: '1px solid rgba(255,255,255,0.2)' }}>
-            <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+            style={{ background: 'rgba(255,255,255,0.55)', border: '1px solid rgba(255,255,255,0.8)' }}>
+            <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#1A2744" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
               <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
               <circle cx="12" cy="7" r="4" />
             </svg>
           </div>
-          <h2 className="text-3xl font-black text-white mb-1">근무 신청</h2>
-          <p className="text-blue-300 text-sm">초기 PIN은 0000입니다</p>
+          <h2 className="text-3xl font-black mb-1" style={{ color: '#1A2744', textShadow: '0 2px 12px rgba(255,255,255,0.6)' }}>근무 신청</h2>
+          <p className="text-sm" style={{ color: 'rgba(30,50,90,0.65)' }}>초기 PIN은 0000입니다</p>
         </div>
 
         {/* 로그인 카드 */}

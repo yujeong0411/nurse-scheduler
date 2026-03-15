@@ -26,7 +26,7 @@ function NumRow({ label, desc, value, onChange, unit, min = 0 }) {
           className="w-8 h-8 lg:w-9 lg:h-9 bg-slate-100 hover:bg-slate-200 rounded-full text-slate-600 font-bold text-lg flex items-center justify-center transition-colors">−</button>
         <span className="w-8 text-center font-bold text-slate-900 lg:text-base">{value ?? 0}</span>
         <button onClick={() => onChange((value || 0) + 1)}
-          className="w-8 h-8 lg:w-9 lg:h-9 bg-blue-600 hover:bg-blue-700 rounded-full text-white font-bold text-lg flex items-center justify-center transition-colors">+</button>
+          className="w-8 h-8 lg:w-9 lg:h-9 rounded-full text-white font-bold text-lg flex items-center justify-center transition-colors" style={{ background: '#2A3A7A' }}>+</button>
         <span className="text-xs lg:text-sm text-slate-400 w-5">{unit}</span>
       </div>
     </li>
@@ -41,7 +41,8 @@ function ToggleRow({ label, desc, value, onChange }) {
         {desc && <p className="text-xs lg:text-sm text-slate-400 mt-0.5">{desc}</p>}
       </div>
       <button onClick={() => onChange(!value)}
-        className={`w-11 h-6 rounded-full transition-colors flex items-center px-0.5 ${value ? 'bg-blue-600' : 'bg-slate-200'}`}>
+        className={`w-11 h-6 rounded-full transition-colors flex items-center px-0.5 ${value ? '' : 'bg-slate-200'}`}
+        style={value ? { background: '#2A3A7A' } : {}}>
         <div className={`w-5 h-5 bg-white rounded-full shadow transition-transform ${value ? 'translate-x-5' : ''}`} />
       </button>
     </li>
@@ -213,9 +214,9 @@ export default function SettingsTab({ period, onPeriodSaved }) {
             <label className="label">근무표 시작일</label>
             <input type="date" value={sd} onChange={e => setSd(e.target.value)} className="input" />
             {sd && endDate && (
-              <div className="mt-2 bg-blue-50 border border-blue-100 rounded-xl px-3 py-2 text-sm text-blue-700 font-medium">
+              <div className="mt-2 rounded-xl px-3 py-2 text-sm font-medium" style={{ background: '#EAECF4', border: '1px solid #C8CEEA', color: '#2A3A7A' }}>
                 {fmtDate(sd)} ~ {fmtDate(endDate)}
-                <span className="text-blue-400 text-xs ml-1">(28일)</span>
+                <span className="text-xs ml-1" style={{ color: '#7A8AC0' }}>(28일)</span>
               </div>
             )}
           </div>

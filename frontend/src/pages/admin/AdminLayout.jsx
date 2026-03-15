@@ -169,7 +169,7 @@ export default function AdminLayout() {
     : null
 
   return (
-    <div className="h-screen flex flex-col bg-slate-50 overflow-hidden">
+    <div className="h-screen flex flex-col overflow-hidden" style={{ background: '#F2F4F8' }}>
       {/* 헤더 */}
       <header className="bg-white border-b border-slate-200 sticky top-0 z-20">
         <div className="flex items-center justify-between px-4 h-14">
@@ -281,12 +281,12 @@ export default function AdminLayout() {
                 key={tab.id}
                 onClick={() => setActiveTab(tab.id)}
                 className="flex-1 flex flex-col items-center gap-1 py-2.5 transition-colors relative"
-                style={{ color: active ? '#2563EB' : '#94A3B8' }}
+                style={{ color: active ? '#2A3A7A' : '#94A3B8' }}
               >
                 {tab.icon(active)}
                 <span className="text-xs font-semibold">{tab.label}</span>
                 {active && (
-                  <span className="absolute bottom-0 left-1/2 -translate-x-1/2 w-8 h-0.5 bg-blue-600 rounded-full" />
+                  <span className="absolute bottom-0 left-1/2 -translate-x-1/2 w-8 h-0.5 rounded-full" style={{ background: '#2A3A7A' }} />
                 )}
               </button>
             )
@@ -316,7 +316,7 @@ export default function AdminLayout() {
                     onChange={e => setPwForm(p => ({ ...p, [key]: e.target.value }))}
                     onKeyDown={e => e.key === 'Enter' && handlePwChange()}
                     placeholder={placeholder}
-                    className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:border-transparent" style={{ '--tw-ring-color': '#2A3A7A' }}
                   />
                 </div>
               ))}
@@ -330,7 +330,7 @@ export default function AdminLayout() {
                 취소
               </button>
               <button onClick={handlePwChange} disabled={pwLoading}
-                className="flex-1 py-2.5 rounded-xl text-sm font-bold text-white bg-blue-600 hover:bg-blue-700 transition-colors disabled:opacity-50">
+                className="flex-1 py-2.5 rounded-xl text-sm font-bold text-white transition-colors disabled:opacity-50" style={{ background: '#2A3A7A' }}>
                 {pwLoading ? '변경 중...' : '변경'}
               </button>
             </div>

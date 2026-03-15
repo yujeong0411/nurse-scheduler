@@ -85,7 +85,7 @@ export default function ShiftSheet({ day, shifts, notes = {}, nurse, rules, star
                 onChange={e => setNoteText(e.target.value)}
                 placeholder="예: 개인 사정, 병원 방문 등"
                 rows={3}
-                className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-none"
+                className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:border-transparent resize-none" style={{ '--tw-ring-color': '#2A3A7A' }}
               />
             </div>
             <div className="flex gap-2">
@@ -94,7 +94,7 @@ export default function ShiftSheet({ day, shifts, notes = {}, nurse, rules, star
                 뒤로
               </button>
               <button onClick={handleSave}
-                className="flex-1 py-3 rounded-xl font-bold text-white bg-blue-600 hover:bg-blue-700 transition-colors text-sm">
+                className="flex-1 py-3 rounded-xl font-bold text-white transition-colors text-sm" style={{ background: '#2A3A7A' }}>
                 저장
               </button>
             </div>
@@ -158,7 +158,7 @@ export default function ShiftSheet({ day, shifts, notes = {}, nurse, rules, star
                               style={{ width: 16, height: 16, fontSize: 9 }}>!</span>
                           )}
                           {isCur && (
-                            <span className="absolute -top-1.5 -right-1.5 bg-blue-600 text-white rounded-full flex items-center justify-center font-black"
+                            <span className="absolute -top-1.5 -right-1.5 text-white rounded-full flex items-center justify-center font-black" style={{ background: '#2A3A7A' }}
                               style={{ width: 16, height: 16, fontSize: 9 }}>✓</span>
                           )}
                         </button>

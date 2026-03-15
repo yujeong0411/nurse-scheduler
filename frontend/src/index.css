@@ -23,7 +23,11 @@ input, select, textarea, button {
     @apply bg-white rounded-2xl shadow-sm border border-slate-100;
   }
   .btn-primary {
-    @apply bg-blue-600 text-white font-semibold rounded-xl px-4 py-3 hover:bg-blue-700 active:scale-95 transition-all disabled:opacity-40 disabled:cursor-not-allowed;
+    @apply text-white font-semibold rounded-xl px-4 py-3 active:scale-95 transition-all disabled:opacity-40 disabled:cursor-not-allowed;
+    background: #2A3A7A;
+  }
+  .btn-primary:hover:not(:disabled) {
+    background: #1E2A5E;
   }
   .btn-secondary {
     @apply bg-slate-100 text-slate-700 font-semibold rounded-xl px-4 py-3 hover:bg-slate-200 active:scale-95 transition-all;
@@ -32,7 +36,8 @@ input, select, textarea, button {
     @apply text-slate-500 font-medium rounded-xl px-4 py-3 hover:bg-slate-100 active:scale-95 transition-all;
   }
   .input {
-    @apply w-full border border-slate-200 rounded-xl px-4 py-3 text-sm lg:text-base focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white transition-all;
+    @apply w-full border border-slate-200 rounded-xl px-4 py-3 text-sm lg:text-base focus:outline-none focus:ring-2 focus:border-transparent bg-white transition-all;
+    --tw-ring-color: #2A3A7A;
   }
   .label {
     @apply block text-xs lg:text-sm font-semibold text-slate-500 uppercase tracking-wide mb-1.5;

@@ -170,7 +170,7 @@ export default function NursePage() {
       <header className="bg-white border-b border-slate-200 sticky top-0 z-10">
         <div className="flex items-center justify-between px-4 h-14">
           <div className="flex items-center gap-3">
-            <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center flex-shrink-0">
+            <div className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0" style={{ background: '#2A3A7A' }}>
               <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/>
                 <circle cx="12" cy="7" r="4"/>
@@ -223,15 +223,15 @@ export default function NursePage() {
           <div className="flex flex-wrap gap-1.5">
             {nurse.grade && (
               <span className="px-2.5 py-1 rounded-full text-xs font-bold"
-                style={{ background: '#EFF6FF', color: '#1D4ED8' }}>{nurse.grade}</span>
+                style={{ background: '#EAECF4', color: '#2A3A7A' }}>{nurse.grade}</span>
             )}
             {nurse.role && (
               <span className="px-2.5 py-1 rounded-full text-xs font-semibold"
-                style={{ background: '#F0F9FF', color: '#0369A1' }}>{nurse.role}</span>
+                style={{ background: '#EBF0F5', color: '#2A4A6A' }}>{nurse.role}</span>
             )}
             {nurse.is_male && (
               <span className="px-2.5 py-1 rounded-full text-xs font-semibold"
-                style={{ background: '#F0F9FF', color: '#0284C7' }}>남성</span>
+                style={{ background: '#EBF0F5', color: '#2A4A6A' }}>남성</span>
             )}
             {nurse.is_pregnant && (
               <span className="px-2.5 py-1 rounded-full text-xs font-semibold"
@@ -392,8 +392,10 @@ export default function NursePage() {
       {startDate && !passed && (
         <div className="fixed bottom-0 left-0 right-0 px-4 pb-6 pt-3 bg-white/95 backdrop-blur-sm border-t border-slate-100">
           <button onClick={handleSubmit} disabled={saving}
-            className={`w-full rounded-2xl font-bold text-white py-4 text-base transition-all active:scale-[0.98] disabled:opacity-60 ${saved ? 'bg-emerald-500' : 'bg-blue-600 hover:bg-blue-700'}`}
-            style={{ boxShadow: saved ? '0 4px 16px rgba(16,185,129,0.3)' : '0 4px 16px rgba(37,99,235,0.3)' }}>
+            className="w-full rounded-2xl font-bold text-white py-4 text-base transition-all active:scale-[0.98] disabled:opacity-60"
+            style={saved
+              ? { background: '#059669', boxShadow: '0 4px 16px rgba(16,185,129,0.3)' }
+              : { background: '#2A3A7A', boxShadow: '0 4px 16px rgba(42,58,122,0.3)' }}>
             {saving ? (
               <span className="flex items-center justify-center gap-2">
                 <div className="w-4 h-4 border-2 border-white/40 border-t-white rounded-full animate-spin" />
