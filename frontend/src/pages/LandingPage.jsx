@@ -32,6 +32,7 @@ export default function LandingPage() {
 
         {/* 로고 영역 */}
         <div className="text-center mb-10">
+          <img src="/logo.png" alt="logo" className="w-20 h-20 md:w-24 md:h-24 mx-auto mb-4 rounded-2xl shadow-lg" />
           <h1 className="text-4xl md:text-6xl font-black text-white tracking-tight mb-2">Nurse Scheduler</h1>
           <p className="text-xs md:text-sm mb-3" style={{ color: 'rgba(255,255,255,0.5)' }}>근무 신청 및 자동 근무표 생성 시스템</p>
           {settings?.department_name && (
