@@ -1,21 +1,12 @@
-name: Keep Alive (Render + Supabase)
+name: Keep Render Alive
 
 on:
   schedule:
-    - cron: '0 9 */5 * *'   # 5일마다 09:00 UTC 실행 (Supabase 7일 비활성 정지 방지)
-  workflow_dispatch:         # 수동 실행 가능
+    - cron: '*/13 * * * *'   # 13분마다 실행
 
 jobs:
   ping:
     runs-on: ubuntu-latest
     steps:
-      - name: Ping Render Backend (keep-alive + Supabase 동시 깨움)
-        run: |
-          curl -sf "${{ secrets.BACKEND_URL }}/health" || echo "⚠️ backend ping failed"
-
-      - name: Ping Supabase (직접)
-        run: |
-          curl -sf \
-            -H "apikey: ${{ secrets.SUPABASE_ANON_KEY }}" \
-            "${{ secrets.SUPABASE_URL }}/rest/v1/hospitals?select=id&limit=1" \
-            || echo "⚠️ supabase ping failed"
+      - name: Ping backend
+        run: curl -f ${{ secrets.BACKEND_URL }}/settings || true
