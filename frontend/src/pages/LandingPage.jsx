@@ -75,11 +75,11 @@ export default function LandingPage() {
           </div>
         )}
         {!loading && serverError && (
-          <div className="mb-8 flex items-center gap-2 text-sm" style={{ color: '#7A3A00' }}>
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <div className="mb-8 flex items-center gap-2 text-sm font-semibold px-4 py-2 rounded-xl" style={{ color: '#7A2000', background: 'rgba(255,180,100,0.25)', border: '1px solid rgba(200,100,30,0.4)' }}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
               <circle cx="12" cy="12" r="10" /><line x1="12" y1="8" x2="12" y2="12" /><line x1="12" y1="16" x2="12.01" y2="16" />
             </svg>
-            서버를 깨우는 중입니다. 페이지를 새로고침해주세요.
+            서버를 깨우는 중입니다. 1분 후 페이지를 새로고침해주세요.
           </div>
         )}
 
