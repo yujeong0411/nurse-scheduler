@@ -13,8 +13,10 @@ OR-Tools CP-SAT 솔버 기반 제약조건 최적화 · FastAPI 백엔드 + Reac
 | 소프트 목적함수 | 요청 반영, D/E/N·주말 균등, N 연속 배정 선호 등 6개 항목 |
 | 간호사 근무 신청 | 웹 달력으로 근무/휴무 신청, 규칙 위반 실시간 검증 |
 | 관리자 대시보드 | 신청현황 열람·편집, 근무표 생성·수정·평가, 엑셀 내보내기 |
+| 이름·날짜 필터 | 신청현황·근무표 탭에서 이름 체크박스 + 날짜별 근무 종류 필터링 (엑셀 필터 방식) |
 | 공정성 평가 | A~F 등급, 편차·위반 항목별 상세 표시 |
 | 엑셀 연동 | 신청현황 내보내기 / 근무표+통계 내보내기 / 이전 근무표 가져오기 |
+| 엑셀 통계 컬럼 | 총근무 · D · 중2 · E · N · OFF · 휴가 · 생휴 · 수면 · 법휴 · 공가 · 경가 · 보수 · 필수 · 잔여수면 · 잔여휴가 |
 
 ---
 
@@ -124,12 +126,27 @@ nurse-scheduler/
         │       ├── NurseManagementTab.jsx ← 간호사 관리
         │       ├── SubmissionsTab.jsx   ← 신청현황
         │       └── ScheduleResultTab.jsx ← 근무표 생성·편집·평가
+        ├── components/
+        │   ├── NameFilter.jsx           ← 이름 필터 드롭다운 (체크박스, 엑셀 필터 방식)
+        │   ├── ShiftSheet.jsx           ← 근무 시트 컴포넌트
+        │   └── PinModal.jsx             ← PIN 입력 모달
         ├── api/client.js                ← Axios API 클라이언트
         ├── store/auth.js                ← Zustand 인증 상태
         └── utils/
             ├── constants.js             ← 근무 색상·코드 정의
             └── validate.js              ← 규칙 위반 검증
 ```
+
+---
+
+## DB 스키마
+![DB Schema](./docs/supabase-schema.png)
+
+> `schedule_data`: `{ "nurse_uuid": { "1": "D", "2": "N", … } }` 형태의 JSONB.
+> `requests.code`: `D`, `E`, `N`, `OFF`, `휴가`, `D 제외` 등 근무/휴무/제외 코드.
+> `periods.deadline`: `"YYYY-MM-DDTHH:MM"` 또는 `"YYYY-MM-DD"` 형식의 TEXT.
+> `rules`는 부서당 1행 (upsert).
+> 관리자 비밀번호는 `departments.admin_pw_hash`에 bcrypt 해시로 저장.
 
 ---
 

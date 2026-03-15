@@ -7,7 +7,7 @@ function Section({ title, icon, children }) {
     <div className="card overflow-hidden">
       <div className="px-4 py-3 border-b border-slate-100 bg-slate-50 flex items-center gap-2">
         {icon}
-        <span className="text-sm font-semibold text-slate-700">{title}</span>
+        <span className="text-sm lg:text-base font-semibold text-slate-700">{title}</span>
       </div>
       <ul className="divide-y divide-slate-100">{children}</ul>
     </div>
@@ -18,16 +18,16 @@ function NumRow({ label, desc, value, onChange, unit, min = 0 }) {
   return (
     <li className="flex items-center justify-between px-4 py-3">
       <div>
-        <p className="text-sm font-medium text-slate-800">{label}</p>
-        {desc && <p className="text-xs text-slate-400 mt-0.5">{desc}</p>}
+        <p className="text-sm lg:text-base font-medium text-slate-800">{label}</p>
+        {desc && <p className="text-xs lg:text-sm text-slate-400 mt-0.5">{desc}</p>}
       </div>
       <div className="flex items-center gap-2">
         <button onClick={() => onChange(Math.max(min, (value || 0) - 1))}
-          className="w-8 h-8 bg-slate-100 hover:bg-slate-200 rounded-full text-slate-600 font-bold text-lg flex items-center justify-center transition-colors">−</button>
-        <span className="w-8 text-center font-bold text-slate-900">{value ?? 0}</span>
+          className="w-8 h-8 lg:w-9 lg:h-9 bg-slate-100 hover:bg-slate-200 rounded-full text-slate-600 font-bold text-lg flex items-center justify-center transition-colors">−</button>
+        <span className="w-8 text-center font-bold text-slate-900 lg:text-base">{value ?? 0}</span>
         <button onClick={() => onChange((value || 0) + 1)}
-          className="w-8 h-8 bg-blue-600 hover:bg-blue-700 rounded-full text-white font-bold text-lg flex items-center justify-center transition-colors">+</button>
-        <span className="text-xs text-slate-400 w-5">{unit}</span>
+          className="w-8 h-8 lg:w-9 lg:h-9 bg-blue-600 hover:bg-blue-700 rounded-full text-white font-bold text-lg flex items-center justify-center transition-colors">+</button>
+        <span className="text-xs lg:text-sm text-slate-400 w-5">{unit}</span>
       </div>
     </li>
   )
@@ -37,8 +37,8 @@ function ToggleRow({ label, desc, value, onChange }) {
   return (
     <li className="flex items-center justify-between px-4 py-3">
       <div>
-        <p className="text-sm font-medium text-slate-800">{label}</p>
-        {desc && <p className="text-xs text-slate-400 mt-0.5">{desc}</p>}
+        <p className="text-sm lg:text-base font-medium text-slate-800">{label}</p>
+        {desc && <p className="text-xs lg:text-sm text-slate-400 mt-0.5">{desc}</p>}
       </div>
       <button onClick={() => onChange(!value)}
         className={`w-11 h-6 rounded-full transition-colors flex items-center px-0.5 ${value ? 'bg-blue-600' : 'bg-slate-200'}`}>

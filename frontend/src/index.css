@@ -32,10 +32,10 @@ input, select, textarea, button {
     @apply text-slate-500 font-medium rounded-xl px-4 py-3 hover:bg-slate-100 active:scale-95 transition-all;
   }
   .input {
-    @apply w-full border border-slate-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white transition-all;
+    @apply w-full border border-slate-200 rounded-xl px-4 py-3 text-sm lg:text-base focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white transition-all;
   }
   .label {
-    @apply block text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1.5;
+    @apply block text-xs lg:text-sm font-semibold text-slate-500 uppercase tracking-wide mb-1.5;
   }
   .badge {
     @apply inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium;

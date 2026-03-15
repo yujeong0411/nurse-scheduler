@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { scheduleApi, requestsApi, settingsApi, rulesApi } from '../../api/client'
 import { sc, fmtDate, getWd, getDate, mmdd, WD, NUM_DAYS, WORK_SET, SHIFT_GROUPS } from '../../utils/constants'
+import NameFilter from '../../components/NameFilter'
 
 const OFF_SET = new Set(['주', 'OFF', 'POFF', '법휴', '수면', '생휴', '휴가', '특휴', '공가', '경가', '보수', '필수', '번표', '병가'])
 
@@ -155,7 +156,11 @@ export default function ScheduleResultTab({ period }) {
   const [editCell, setEditCell] = useState(null)
   const [exporting, setExporting] = useState(false)
   const [msg, setMsg] = useState(null)
+  const [selectedNames, setSelectedNames] = useState(null)
+  const [dateFilter, setDateFilter] = useState(null)   // null | { day, codes: Set }
+  const [datePicker, setDatePicker] = useState(null)   // null | { day, x, y }
   const pollRef = useRef(null)
+  const datePickerRef = useRef(null)
 
   const showMsg = (text, ok = true) => {
     setMsg({ text, ok })
@@ -234,6 +239,21 @@ export default function ScheduleResultTab({ period }) {
     return () => clearInterval(pollRef.current)
   }, [jobId, jobStatus])
 
+  useEffect(() => {
+    if (!datePicker) return
+    const handler = (e) => {
+      if (datePickerRef.current && !datePickerRef.current.contains(e.target)) setDatePicker(null)
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [datePicker])
+
+  const handleDateHeaderClick = (e, d) => {
+    if (datePicker?.day === d) { setDatePicker(null); return }
+    const rect = e.currentTarget.getBoundingClientRect()
+    setDatePicker({ day: d, x: rect.left, y: rect.bottom })
+  }
+
   const loadSchedule = async (sid) => {
     try {
       const res = await scheduleApi.get(sid)
@@ -311,6 +331,26 @@ export default function ScheduleResultTab({ period }) {
   const startDate = settings?.start_date || null
   const endStr = startDate ? fmtDate(new Date(new Date(startDate).getTime() + 27 * 86400000)) : ''
   const days = Array.from({ length: NUM_DAYS }, (_, i) => i + 1)
+  const allNames = nurses.map(n => n.name)
+  const filteredNurses = selectedNames !== null
+    ? nurses.filter(n => selectedNames.has(n.name))
+    : nurses
+  const displayNurses = dateFilter
+    ? filteredNurses.filter(n => {
+        const s = scheduleData?.[n.id]?.[dateFilter.day] || scheduleData?.[n.id]?.[String(dateFilter.day)] || ''
+        return dateFilter.codes.has(s)
+      })
+    : filteredNurses
+
+  // 날짜 피커에 표시할 근무 종류 목록 (해당 날짜에 실제 배정된 값만)
+  const pickerCodes = datePicker && scheduleData ? (() => {
+    const s = new Set()
+    nurses.forEach(n => {
+      const v = scheduleData[n.id]?.[datePicker.day] || scheduleData[n.id]?.[String(datePicker.day)] || ''
+      if (v) s.add(v)
+    })
+    return [...s].sort()
+  })() : []
 
   return (
     <div className="flex flex-col flex-1 min-h-0">
@@ -437,34 +477,43 @@ export default function ScheduleResultTab({ period }) {
           <table className="text-xs border-collapse w-full" style={{ minWidth: 'max-content' }}>
             <thead>
               <tr>
-                <th className="sticky top-0 left-0 z-30 px-3 py-2 text-left font-semibold border-b border-r border-slate-200 whitespace-nowrap" style={{ minWidth: 88, background: '#f8fafc', color: '#334155' }}>
-                  이름
+                <th className="sticky top-0 left-0 z-30 px-3 py-2 text-left font-semibold whitespace-nowrap"
+                  style={{ minWidth: 88, background: '#f1f5f9', color: '#334155', boxShadow: '0 1px 4px rgba(0,0,0,0.09), 2px 0 6px rgba(0,0,0,0.06)' }}>
+                  <NameFilter allNames={allNames} selectedNames={selectedNames} onChange={setSelectedNames} />
                 </th>
                 {days.map(d => {
                   const wd = getWd(startDate, d)
                   const isSat = wd === 5, isSun = wd === 6
                   const dateObj = getDate(startDate, d)
+                  const isPickerOpen = datePicker?.day === d
+                  const isFiltered = dateFilter?.day === d
                   return (
-                    <th key={d} className="sticky top-0 z-10 py-1.5 font-medium text-center border-b border-r border-slate-200" style={{
-                      minWidth: 42,
-                      background: isSun ? '#fff0f0' : isSat ? '#f5f8ff' : '#f8fafc',
-                      color: isSun ? '#dc2626' : isSat ? '#2563eb' : '#334155',
-                    }}>
+                    <th key={d}
+                      onClick={(e) => scheduleData && handleDateHeaderClick(e, d)}
+                      className="sticky top-0 z-10 py-1.5 font-medium text-center border-r border-slate-200 transition-colors"
+                      style={{
+                        minWidth: 42,
+                        cursor: scheduleData ? 'pointer' : 'default',
+                        background: isPickerOpen ? '#e0e7ff' : isFiltered ? '#dbeafe' : isSun ? '#fff0f0' : isSat ? '#f0f4ff' : '#f1f5f9',
+                        color: isSun ? '#dc2626' : isSat ? '#2563eb' : '#475569',
+                        boxShadow: '0 1px 4px rgba(0,0,0,0.09)',
+                      }}>
                       <div style={{ fontSize: 11 }}>{mmdd(dateObj)}</div>
                       <div style={{ fontSize: 11 }}>{WD[wd]}</div>
+                      {isFiltered && <div style={{ width: 5, height: 5, borderRadius: '50%', background: '#3b82f6', margin: '1px auto 0' }} />}
                     </th>
                   )
                 })}
                 {showStats && ['총근무', 'D', 'E', 'N', '중2', 'OFF', '휴가'].map((h, hi) => (
-                  <th key={h} className="sticky top-0 z-10 py-1.5 font-semibold text-center border-b border-r border-slate-200 text-indigo-700"
-                    style={{ minWidth: 44, borderLeft: hi === 0 ? '2px solid #c7d2fe' : undefined, fontSize: 10, background: '#eef2ff' }}>
+                  <th key={h} className="sticky top-0 z-10 py-1.5 font-semibold text-center border-r border-slate-100 text-indigo-600"
+                    style={{ minWidth: 44, borderLeft: hi === 0 ? '2px solid #c7d2fe' : undefined, borderRight: undefined, boxShadow: '0 1px 4px rgba(0,0,0,0.09)', fontSize: 10, background: '#eef2ff' }}>
                     {h}
                   </th>
                 ))}
               </tr>
             </thead>
             <tbody>
-              {nurses.map((nurse, ni) => {
+              {displayNurses.map((nurse, ni) => {
                 const nurseShifts = scheduleData[nurse.id] || {}
 
                 // 통계 계산
@@ -482,7 +531,8 @@ export default function ScheduleResultTab({ period }) {
 
                 return (
                   <tr key={nurse.id} className="group hover:bg-blue-100 transition-colors">
-                    <td className="sticky left-0 z-10 px-3 py-1.5 font-medium whitespace-nowrap border-r border-b border-slate-200 bg-white group-hover:bg-blue-100 transition-colors text-slate-800">
+                    <td className="sticky left-0 z-10 px-3 py-1.5 font-medium whitespace-nowrap border-b border-slate-200 bg-white group-hover:bg-blue-50 transition-colors text-slate-800"
+                      style={{ boxShadow: '2px 0 6px rgba(0,0,0,0.06)' }}>
                       {nurse.name}
                     </td>
                     {days.map(d => {
@@ -536,10 +586,11 @@ export default function ScheduleResultTab({ period }) {
               <tfoot>
                 {['D', 'E', 'N', '중2'].map((shift, si) => (
                   <tr key={shift}>
-                    <td className="sticky left-0 z-10 px-3 py-1 font-semibold text-indigo-700 border-r border-b border-slate-200 whitespace-nowrap"
+                    <td className="sticky left-0 z-10 px-3 py-1 font-semibold text-indigo-600 border-b border-slate-200 whitespace-nowrap"
                       style={{
                         fontSize: 11,
                         background: '#eef2ff',
+                        boxShadow: '2px 0 6px rgba(0,0,0,0.06)',
                         borderTop: si === 0 ? '2px solid #c7d2fe' : undefined,
                       }}>
                       {shift} 인원
@@ -589,6 +640,71 @@ export default function ScheduleResultTab({ period }) {
           <p className="text-sm">생성 버튼을 눌러 근무표를 만들어주세요.</p>
         </div>
       )}
+
+      {datePicker && (() => {
+        const popW = 140
+        const popH = 52 + pickerCodes.length * 28 + (dateFilter?.day === datePicker.day ? 36 : 0)
+        const top = datePicker.y + 4 + popH > window.innerHeight ? datePicker.y - popH - 4 : datePicker.y + 4
+        const left = Math.max(4, Math.min(datePicker.x, window.innerWidth - popW - 4))
+        const isThisDayFiltered = dateFilter?.day === datePicker.day
+
+        const toggleCode = (code) => {
+          const base = isThisDayFiltered ? new Set(dateFilter.codes) : new Set(pickerCodes)
+          if (base.has(code)) {
+            base.delete(code)
+            if (base.size === 0 || base.size === pickerCodes.length) { setDateFilter(null); return }
+          } else {
+            base.add(code)
+            if (base.size === pickerCodes.length) { setDateFilter(null); return }
+          }
+          setDateFilter({ day: datePicker.day, codes: base })
+        }
+
+        return (
+          <div ref={datePickerRef}
+            className="fixed z-50 bg-white rounded-xl shadow-xl border border-slate-200"
+            style={{ top, left, width: popW }}>
+            <div className="px-3 py-2 border-b border-slate-100 text-xs font-semibold text-slate-500">
+              {mmdd(getDate(startDate, datePicker.day))} 필터
+            </div>
+            {pickerCodes.length === 0 ? (
+              <p className="text-xs text-slate-400 text-center py-3">데이터 없음</p>
+            ) : (
+              <div className="py-1">
+                <label className="flex items-center gap-2 px-3 py-1 hover:bg-slate-50 cursor-pointer border-b border-slate-100 mb-1">
+                  <input type="checkbox"
+                    checked={!isThisDayFiltered}
+                    ref={el => { if (el) el.indeterminate = isThisDayFiltered && dateFilter.codes.size > 0 && dateFilter.codes.size < pickerCodes.length }}
+                    onChange={() => isThisDayFiltered ? setDateFilter(null) : setDateFilter({ day: datePicker.day, codes: new Set() })}
+                    style={{ width: 13, height: 13, accentColor: '#3b82f6', cursor: 'pointer' }} />
+                  <span className="text-xs font-semibold text-slate-600">(전체)</span>
+                </label>
+                {pickerCodes.map(code => {
+                  const checked = !isThisDayFiltered || dateFilter.codes.has(code)
+                  return (
+                    <label key={code} className="flex items-center gap-2 px-3 py-1 hover:bg-slate-50 cursor-pointer">
+                      <input type="checkbox" checked={checked} onChange={() => toggleCode(code)}
+                        style={{ width: 13, height: 13, accentColor: '#3b82f6', cursor: 'pointer' }} />
+                      <span className="text-xs font-semibold"
+                        style={{ color: code === 'N' ? '#B91C1C' : code === '주' ? '#854D0E' : '#374151' }}>
+                        {code}
+                      </span>
+                    </label>
+                  )
+                })}
+              </div>
+            )}
+            {isThisDayFiltered && (
+              <div className="px-2 py-1.5 border-t border-slate-100">
+                <button onClick={() => setDateFilter(null)}
+                  className="w-full text-xs text-blue-600 hover:text-blue-800 font-semibold py-0.5 text-center">
+                  초기화
+                </button>
+              </div>
+            )}
+          </div>
+        )
+      })()}
 
       {editCell && (
         <CellEditModal

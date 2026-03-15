@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react'
 import { requestsApi, nursesApi, rulesApi } from '../../api/client'
 import { sc, fmtDate, getWd, getDate, mmdd, WD, NUM_DAYS, SHIFT_GROUPS, DEFAULT_RULES } from '../../utils/constants'
 import { validate } from '../../utils/validate'
+import NameFilter from '../../components/NameFilter'
 
 const WD_KR = ['월', '화', '수', '목', '금', '토', '일']
 
@@ -37,7 +38,11 @@ export default function SubmissionsTab({ period }) {
   const [activePick, setActivePick] = useState(null)
   const [blockPopup, setBlockPopup] = useState(null)  // { code, violations[] }
   const [saving, setSaving] = useState(null)
+  const [selectedNames, setSelectedNames] = useState(null)
+  const [dateFilter, setDateFilter] = useState(null)   // null | { day, codes: Set }
+  const [datePicker, setDatePicker] = useState(null)   // null | { day, x, y }
   const pickerRef = useRef(null)
+  const datePickerRef = useRef(null)
   const periodIdRef = useRef(null)
   const allRequestsRef = useRef({})
 
@@ -78,6 +83,21 @@ export default function SubmissionsTab({ period }) {
     document.addEventListener('mousedown', handler)
     return () => document.removeEventListener('mousedown', handler)
   }, [activePick])
+
+  useEffect(() => {
+    if (!datePicker) return
+    const handler = (e) => {
+      if (datePickerRef.current && !datePickerRef.current.contains(e.target)) setDatePicker(null)
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [datePicker])
+
+  const handleDateHeaderClick = (e, d) => {
+    if (datePicker?.day === d) { setDatePicker(null); return }
+    const rect = e.currentTarget.getBoundingClientRect()
+    setDatePicker({ day: d, x: rect.left, y: rect.bottom })
+  }
 
   const handleExport = async () => {
     if (!period?.period_id) return
@@ -156,6 +176,25 @@ export default function SubmissionsTab({ period }) {
   const endStr = fmtDate(new Date(new Date(startDate).getTime() + 27 * 86400000))
   const days = Array.from({ length: NUM_DAYS }, (_, i) => i + 1)
   const pct = status.length > 0 ? Math.round(submitted.length / status.length * 100) : 0
+  const allNames = status.map(s => s.name)
+  const filteredStatus = selectedNames !== null
+    ? status.filter(s => selectedNames.has(s.name))
+    : status
+  const displayStatus = dateFilter
+    ? filteredStatus.filter(s => {
+        const code = allRequests[s.nurse_id]?.[dateFilter.day]?.code || ''
+        return dateFilter.codes.has(code)
+      })
+    : filteredStatus
+
+  const pickerCodes = datePicker ? (() => {
+    const s = new Set()
+    status.forEach(st => {
+      const code = allRequestsRef.current[st.nurse_id]?.[datePicker.day]?.code || ''
+      if (code) s.add(code)
+    })
+    return [...s].sort()
+  })() : []
 
   return (
     <div className="flex flex-col flex-1 min-h-0">
@@ -185,34 +224,43 @@ export default function SubmissionsTab({ period }) {
         <table className="text-xs border-collapse w-full" style={{ minWidth: 'max-content' }}>
           <thead>
             <tr>
-              <th className="sticky top-0 left-0 z-30 px-3 py-2 text-left font-semibold border-b border-r border-slate-200 whitespace-nowrap" style={{ minWidth: 88, background: '#f8fafc', color: '#334155' }}>
-                이름
+              <th className="sticky top-0 left-0 z-30 px-3 py-2 text-left font-semibold whitespace-nowrap"
+                style={{ minWidth: 88, background: '#f1f5f9', color: '#334155', boxShadow: '0 1px 4px rgba(0,0,0,0.09), 2px 0 6px rgba(0,0,0,0.06)' }}>
+                <NameFilter allNames={allNames} selectedNames={selectedNames} onChange={setSelectedNames} />
               </th>
               {days.map(d => {
                 const wd = getWd(startDate, d)
                 const isSat = wd === 5, isSun = wd === 6
                 const dateObj = getDate(startDate, d)
+                const isPickerOpen = datePicker?.day === d
+                const isFiltered = dateFilter?.day === d
                 return (
-                  <th key={d} className="sticky top-0 z-10 py-1.5 font-medium text-center border-b border-r border-slate-200" style={{
-                    minWidth: 42,
-                    background: isSun ? '#fff0f0' : isSat ? '#f5f8ff' : '#f8fafc',
-                    color: isSun ? '#dc2626' : isSat ? '#2563eb' : '#334155',
-                  }}>
+                  <th key={d}
+                    onClick={(e) => handleDateHeaderClick(e, d)}
+                    className="sticky top-0 z-10 py-1.5 font-medium text-center border-r border-slate-200 cursor-pointer transition-colors"
+                    style={{
+                      minWidth: 42,
+                      background: isPickerOpen ? '#e0e7ff' : isFiltered ? '#dbeafe' : isSun ? '#fff0f0' : isSat ? '#f0f4ff' : '#f1f5f9',
+                      color: isSun ? '#dc2626' : isSat ? '#2563eb' : '#475569',
+                      boxShadow: '0 1px 4px rgba(0,0,0,0.09)',
+                    }}>
                     <div style={{ fontSize: 11 }}>{mmdd(dateObj)}</div>
                     <div style={{ fontSize: 11 }}>{WD[wd]}</div>
+                    {isFiltered && <div style={{ width: 5, height: 5, borderRadius: '50%', background: '#3b82f6', margin: '1px auto 0' }} />}
                   </th>
                 )
               })}
             </tr>
           </thead>
           <tbody>
-            {status.map((st, ni) => {
+            {displayStatus.map((st, ni) => {
               const shifts = allRequests[st.nurse_id] || {}
               const isSubmitted = !!st.submitted_at
               const isSavingThis = saving === st.nurse_id
               return (
                 <tr key={st.nurse_id} className="group hover:bg-blue-100 transition-colors">
-                  <td className="sticky left-0 z-10 px-3 py-1.5 font-medium whitespace-nowrap border-r border-b border-slate-200 bg-white group-hover:bg-blue-100 transition-colors">
+                  <td className="sticky left-0 z-10 px-3 py-1.5 font-medium whitespace-nowrap border-b border-slate-200 bg-white group-hover:bg-blue-50 transition-colors"
+                    style={{ boxShadow: '2px 0 6px rgba(0,0,0,0.06)' }}>
                     <div className="flex items-center gap-1.5">
                       <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${isSavingThis ? 'bg-amber-400 animate-pulse' : isSubmitted ? 'bg-emerald-400' : 'bg-slate-200'}`} />
                       <span className="text-slate-800">{st.name}</span>
@@ -257,6 +305,72 @@ export default function SubmissionsTab({ period }) {
           </tbody>
         </table>
       </div>
+
+      {/* 날짜 필터 피커 */}
+      {datePicker && (() => {
+        const popW = 140
+        const popH = 52 + pickerCodes.length * 28 + (dateFilter?.day === datePicker.day ? 36 : 0)
+        const top = datePicker.y + 4 + popH > window.innerHeight ? datePicker.y - popH - 4 : datePicker.y + 4
+        const left = Math.max(4, Math.min(datePicker.x, window.innerWidth - popW - 4))
+        const isThisDayFiltered = dateFilter?.day === datePicker.day
+
+        const toggleCode = (code) => {
+          const base = isThisDayFiltered ? new Set(dateFilter.codes) : new Set(pickerCodes)
+          if (base.has(code)) {
+            base.delete(code)
+            if (base.size === 0 || base.size === pickerCodes.length) { setDateFilter(null); return }
+          } else {
+            base.add(code)
+            if (base.size === pickerCodes.length) { setDateFilter(null); return }
+          }
+          setDateFilter({ day: datePicker.day, codes: base })
+        }
+
+        return (
+          <div ref={datePickerRef}
+            className="fixed z-50 bg-white rounded-xl shadow-xl border border-slate-200"
+            style={{ top, left, width: popW }}>
+            <div className="px-3 py-2 border-b border-slate-100 text-xs font-semibold text-slate-500">
+              {mmdd(getDate(startDate, datePicker.day))} 필터
+            </div>
+            {pickerCodes.length === 0 ? (
+              <p className="text-xs text-slate-400 text-center py-3">데이터 없음</p>
+            ) : (
+              <div className="py-1">
+                <label className="flex items-center gap-2 px-3 py-1 hover:bg-slate-50 cursor-pointer border-b border-slate-100 mb-1">
+                  <input type="checkbox"
+                    checked={!isThisDayFiltered}
+                    ref={el => { if (el) el.indeterminate = isThisDayFiltered && dateFilter.codes.size > 0 && dateFilter.codes.size < pickerCodes.length }}
+                    onChange={() => isThisDayFiltered ? setDateFilter(null) : setDateFilter({ day: datePicker.day, codes: new Set() })}
+                    style={{ width: 13, height: 13, accentColor: '#3b82f6', cursor: 'pointer' }} />
+                  <span className="text-xs font-semibold text-slate-600">(전체)</span>
+                </label>
+                {pickerCodes.map(code => {
+                  const checked = !isThisDayFiltered || dateFilter.codes.has(code)
+                  return (
+                    <label key={code} className="flex items-center gap-2 px-3 py-1 hover:bg-slate-50 cursor-pointer">
+                      <input type="checkbox" checked={checked} onChange={() => toggleCode(code)}
+                        style={{ width: 13, height: 13, accentColor: '#3b82f6', cursor: 'pointer' }} />
+                      <span className="text-xs font-semibold"
+                        style={{ color: code === 'N' ? '#B91C1C' : '#374151' }}>
+                        {code}
+                      </span>
+                    </label>
+                  )
+                })}
+              </div>
+            )}
+            {isThisDayFiltered && (
+              <div className="px-2 py-1.5 border-t border-slate-100">
+                <button onClick={() => setDateFilter(null)}
+                  className="w-full text-xs text-blue-600 hover:text-blue-800 font-semibold py-0.5 text-center">
+                  초기화
+                </button>
+              </div>
+            )}
+          </div>
+        )
+      })()}
 
       {/* 코드 피커 */}
       {activePick && (() => {
