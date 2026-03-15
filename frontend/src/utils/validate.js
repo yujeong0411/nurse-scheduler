@@ -87,8 +87,14 @@ export function validate(shifts, day, s, nurse, rules, startDate) {
   }
   if (s === "생휴") {
     if (nurse.is_male) v.push("생휴: 남성 불가");
-    if (Object.entries(shifts).filter(function(e) { return +e[0] !== day && e[1] === "생휴"; }).length >= 1)
-      v.push("생휴: 월 1회 초과");
+    var targetMonth = startDate ? (function() { var dt = new Date(startDate); dt.setDate(dt.getDate() + day - 1); return dt.getMonth(); })() : null;
+    var sameMonthGen = Object.entries(shifts).filter(function(e) {
+      if (+e[0] === day || e[1] !== "생휴") return false;
+      if (targetMonth === null) return true;
+      var dt = new Date(startDate); dt.setDate(dt.getDate() + +e[0] - 1);
+      return dt.getMonth() === targetMonth;
+    }).length;
+    if (sameMonthGen >= 1) v.push("생휴: 월 1회 초과");
   }
   if (s === "POFF" && !nurse.is_pregnant) v.push("POFF: 임산부만 가능");
   if (s === "중2") {

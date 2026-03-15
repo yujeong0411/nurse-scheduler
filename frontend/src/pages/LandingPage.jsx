@@ -7,12 +7,15 @@ export default function LandingPage() {
   const navigate = useNavigate()
   const [settings, setSettings] = useState(null)
   const [loading, setLoading] = useState(true)
+  const [serverError, setServerError] = useState(false)
 
   useEffect(() => {
+    const timer = setTimeout(() => { setLoading(false); setServerError(true) }, 6000)
     settingsApi.get({ timeout: 5000 })
       .then(res => setSettings(res.data))
-      .catch(() => { })
-      .finally(() => setLoading(false))
+      .catch(() => setServerError(true))
+      .finally(() => { clearTimeout(timer); setLoading(false) })
+    return () => clearTimeout(timer)
   }, [])
 
   const startDate = settings?.start_date
@@ -68,6 +71,14 @@ export default function LandingPage() {
           <div className="mb-8 flex items-center gap-2 text-blue-300 text-sm">
             <div className="w-4 h-4 border-2 border-blue-300/30 border-t-blue-300 rounded-full animate-spin" />
             서버 연결 중...
+          </div>
+        )}
+        {!loading && serverError && (
+          <div className="mb-8 flex items-center gap-2 text-amber-300 text-sm">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
+            </svg>
+            서버를 깨우는 중입니다. 페이지를 새로고침해주세요.
           </div>
         )}
 
