@@ -228,6 +228,10 @@ def validate_requests(
                     f" → 주당 최대 {required_off_w}개, {days} 무시됨"
                 )
 
+        # 병가 스팬 계산 (이 간호사의 연속 병가 범위)
+        sick_days_v = sorted(r.day for r in hard_reqs if r.code == "병가")
+        sick_span_v = (sick_days_v[0], sick_days_v[-1]) if sick_days_v else None
+
         # 3. 주 요일 불일치
         ju_reqs = [r for r in hard_reqs if r.code == "주"]
         if ju_reqs:
@@ -256,6 +260,9 @@ def validate_requests(
             if week_len < 4:
                 continue
             week_num += 1
+            # 병가 스팬으로 주 전체가 덮이면 OFF 불필요 → 경고 생략
+            if sick_span_v and all(sick_span_v[0] <= d <= sick_span_v[1] for d in range(w_start, w_end + 1)):
+                continue
             # 이 주에서 committed된 날 (하드 비-OFF 요청 + 고정주휴)
             committed = set()
             for d in range(w_start, w_end + 1):
@@ -285,10 +292,10 @@ def validate_requests(
                 f" (잔여 {nurse.vacation_days}일)"
             )
 
-        # 5. 하드 휴무 과다 → H20 범위 초과
+        # 5. 하드 휴무 과다 → H20 범위 초과 (병가 있으면 자연히 초과 가능 → 생략)
         hard_off_count = len(hard_reqs)
         limit = (base_off + extra_off_4day + 2) if nurse.is_4day_week else (base_off + 2)
-        if hard_off_count > limit:
+        if hard_off_count > limit and not sick_span_v:
             warnings.append(
                 f"{nurse.name}: 확정 휴무 {hard_off_count}일"
                 f" (허용 범위 최대 {limit}일)"

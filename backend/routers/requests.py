@@ -1,10 +1,11 @@
-"""근무신청 저장·조회·현황·엑셀 export"""
+"""근무신청 저장·조회·현황·엑셀 export/import"""
 import io
 import os
+import re
 import sys
 import tempfile
 from datetime import datetime
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, HTTPException, Depends, UploadFile, File
 from fastapi.responses import StreamingResponse
 from ..database import get_db, db_nurses, get_period_by_id
 from ..deps import get_current_admin, get_current_any
@@ -290,3 +291,148 @@ def export_requests_excel(period_id: str, _: dict = Depends(get_current_admin)):
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         headers={"Content-Disposition": f"attachment; filename*=UTF-8''{encoded}"},
     )
+
+
+@router.post("/{period_id}/import")
+def import_requests_excel(
+    period_id: str,
+    file: UploadFile = File(...),
+    _: dict = Depends(get_current_admin),
+):
+    """신청현황 xlsx 가져오기 — export와 동일한 포맷"""
+    from openpyxl import load_workbook
+
+    db = get_db()
+    period = get_period_by_id(db, period_id)
+    if not period:
+        raise HTTPException(404, "기간을 찾을 수 없습니다.")
+
+    nurses = db_nurses(db).order("sort_order").execute().data
+    name_to_id = {n["name"].strip(): n["id"] for n in nurses}
+
+    content = file.file.read()
+    tmp = tempfile.NamedTemporaryFile(suffix=".xlsx", delete=False)
+    tmp.write(content)
+    tmp.close()
+
+    try:
+        wb = load_workbook(tmp.name, read_only=True, data_only=True)
+        ws = wb.active
+
+        # 헤더 행 찾기 (날짜 숫자 20개 이상인 행)
+        header_row = None
+        day_cols: dict[int, int] = {}  # day_index(1-28) → col_number
+        for row in ws.iter_rows():
+            temp_cols = []
+            for cell in row:
+                if cell.value is None:
+                    continue
+                val = str(cell.value).strip()
+                raw = val[:-1].strip() if val.endswith("일") else val
+                try:
+                    d = int(raw)
+                    if 1 <= d <= 31:
+                        temp_cols.append((cell.column, d))
+                except ValueError:
+                    pass
+            if len(temp_cols) >= 20:
+                header_row = row[0].row
+                temp_cols.sort(key=lambda x: x[0])
+                day_cols = {i + 1: col for i, (col, _) in enumerate(temp_cols)}
+                break
+
+        _CODE_MAP = {
+            "VAC": "휴가", "휴": "휴가",
+            "병": "병가", "공": "공가", "경": "경가", "생": "생휴",
+            "법": "법휴", "오프": "OFF", "주휴": "주",
+        }
+
+        def _normalize(c: str) -> str:
+            if "수면" in c:
+                return "수면"
+            for s in ["D", "E", "N"]:
+                if c.replace(" ", "") == f"{s}제외":
+                    return f"{s} 제외"
+            return _CODE_MAP.get(c.upper(), _CODE_MAP.get(c, c))
+
+        if not header_row or not day_cols:
+            wb.close()
+            raise HTTPException(400, "날짜 헤더를 찾을 수 없습니다. 올바른 신청현황 파일인지 확인해주세요.")
+
+        # 이름 열 찾기 ("이름" 셀 위치)
+        min_day_col = min(day_cols.values())
+        name_col = 1
+        for search_row in ws.iter_rows(min_row=max(1, header_row - 1), max_row=header_row + 2,
+                                        max_col=min_day_col - 1):
+            for cell in search_row:
+                if cell.value and str(cell.value).strip() == "이름":
+                    name_col = cell.column
+
+        # 데이터 시작 행 찾기 (요일행 건너뜀)
+        data_start = header_row + 1
+        for check_row in ws.iter_rows(min_row=header_row + 1, max_row=min(header_row + 3, ws.max_row),
+                                       max_col=min_day_col + 6):
+            vals = {str(c.value).strip() for c in check_row if c.value}
+            if vals & {"이름", "일", "월", "화", "수", "목", "금", "토"}:
+                data_start = check_row[0].row + 1
+                break
+
+        # 데이터 파싱
+        now_iso = datetime.utcnow().isoformat()
+        imported, skipped = 0, []
+
+        for row in ws.iter_rows(min_row=data_start):
+            row_dict = {cell.column: cell.value for cell in row}
+            name = str(row_dict.get(name_col) or "").strip()
+            if not name:
+                continue
+            nurse_id = name_to_id.get(name)
+            if not nurse_id:
+                skipped.append(name)
+                continue
+
+            items = []
+            for day_idx, col in day_cols.items():
+                val = row_dict.get(col)
+                if not val:
+                    continue
+                raw = str(val).strip()
+                # "공가(예비군)" 형태 → code="공가", note="예비군"
+                _m = re.match(r'^([^(/]+)\(([^)]*)\)', raw)
+                note = _m.group(2).strip() if _m else ""
+                code = _m.group(1).strip() if _m else raw
+                if not code or code == "주":  # 주휴는 자동 처리라 skip
+                    continue
+                # "/" 구분자 OR 신청 처리
+                if "/" in code:
+                    for part in code.split("/"):
+                        part = _normalize(part.strip())
+                        if part:
+                            items.append({
+                                "period_id": period_id, "nurse_id": nurse_id,
+                                "day": day_idx, "code": part,
+                                "is_or": True, "note": note, "submitted_at": now_iso,
+                            })
+                else:
+                    items.append({
+                        "period_id": period_id, "nurse_id": nurse_id,
+                        "day": day_idx, "code": _normalize(code),
+                        "is_or": False, "note": note, "submitted_at": now_iso,
+                    })
+
+            db.table("requests").delete().eq("period_id", period_id).eq("nurse_id", nurse_id).execute()
+            if items:
+                db.table("requests").insert(items).execute()
+            imported += 1
+
+        wb.close()
+    finally:
+        try:
+            os.unlink(tmp.name)
+        except Exception:
+            pass
+
+    msg = f"{imported}명 신청 가져오기 완료"
+    if skipped:
+        msg += f" (미매칭 {len(skipped)}명: {', '.join(skipped[:5])}{'...' if len(skipped) > 5 else ''})"
+    return {"imported": imported, "skipped": skipped, "message": msg}

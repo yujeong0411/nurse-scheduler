@@ -1,15 +1,13 @@
-"""Supabase 클라이언트 싱글턴 + 공통 쿼리 헬퍼"""
+"""Supabase 클라이언트 + 공통 쿼리 헬퍼
+요청마다 새 클라이언트를 생성해 idle 후 HTTP/2 연결 종료(RemoteProtocolError) 문제를 방지.
+create_client()는 객체 생성만 하고 실제 연결은 execute() 시점에 맺히므로 비용이 거의 없음.
+"""
 from supabase import create_client, Client
 from .config import settings
 
-_client: Client | None = None
-
 
 def get_db() -> Client:
-    global _client
-    if _client is None:
-        _client = create_client(settings.supabase_url, settings.supabase_service_key)
-    return _client
+    return create_client(settings.supabase_url, settings.supabase_service_key)
 
 
 # ── 쿼리 래퍼 ─────────────────────────────────────────────────────────
@@ -67,14 +65,15 @@ def db_periods(db: Client) -> _TableHelper:
 
 
 def get_active_period(db: Client) -> dict | None:
-    """가장 최근 활성 period 반환"""
-    res = (
-        db_periods(db)
-        .order("start_date", desc=True)
-        .limit(1)
-        .execute()
-    )
-    return res.data[0] if res.data else None
+    """is_active=True인 period 반환. 없으면 가장 최근 period 반환"""
+    res = db_periods(db).select("*").execute()
+    if not res.data:
+        return None
+    active = next((p for p in res.data if p.get("is_active")), None)
+    if active:
+        return active
+    # fallback: is_active 미설정 환경 대비
+    return max(res.data, key=lambda p: p["start_date"])
 
 
 def get_period_by_id(db: Client, period_id: str) -> dict | None:

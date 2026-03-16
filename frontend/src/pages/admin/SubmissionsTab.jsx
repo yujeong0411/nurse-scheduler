@@ -35,6 +35,8 @@ export default function SubmissionsTab({ period }) {
   const [rules, setRules] = useState(DEFAULT_RULES)
   const [loading, setLoading] = useState(true)
   const [exporting, setExporting] = useState(false)
+  const [importing, setImporting] = useState(false)
+  const [importMsg, setImportMsg] = useState(null)
   const [activePick, setActivePick] = useState(null)
   const [blockPopup, setBlockPopup] = useState(null)  // { code, violations[] }
   const [saving, setSaving] = useState(null)
@@ -97,6 +99,37 @@ export default function SubmissionsTab({ period }) {
     if (datePicker?.day === d) { setDatePicker(null); return }
     const rect = e.currentTarget.getBoundingClientRect()
     setDatePicker({ day: d, x: rect.left, y: rect.bottom })
+  }
+
+  const handleImport = async (e) => {
+    const file = e.target.files[0]
+    if (!file || !period?.period_id) return
+    setImporting(true)
+    setImportMsg(null)
+    try {
+      const res = await requestsApi.importXlsx(period.period_id, file)
+      setImportMsg({ ok: true, text: res.data.message })
+      setTimeout(() => setImportMsg(null), 3000)
+      // 데이터 새로고침
+      const [sRes, aRes] = await Promise.all([
+        requestsApi.getStatus(period.period_id),
+        requestsApi.getAll(period.period_id),
+      ])
+      setStatus(sRes.data)
+      const map = {}
+      aRes.data.forEach(item => {
+        if (!map[item.nurse_id]) map[item.nurse_id] = {}
+        map[item.nurse_id][item.day] = { code: item.code, note: item.note || '' }
+      })
+      allRequestsRef.current = map
+      setAllRequests(map)
+    } catch (err) {
+      setImportMsg({ ok: false, text: err.response?.data?.detail || '가져오기 실패' })
+      setTimeout(() => setImportMsg(null), 4000)
+    } finally {
+      setImporting(false)
+      e.target.value = ''
+    }
   }
 
   const handleExport = async () => {
@@ -209,14 +242,24 @@ export default function SubmissionsTab({ period }) {
             <span className="text-xs text-slate-500">{submitted.length}/{status.length}명 제출</span>
           </div>
         </div>
-        <button onClick={handleExport} disabled={exporting}
-          className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold rounded-lg transition-colors disabled:opacity-50 flex-shrink-0">
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
-            <polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>
-          </svg>
-          {exporting ? '내보내는 중...' : '엑셀 저장'}
-        </button>
+        <div className="flex items-center gap-2 flex-shrink-0">
+          <label className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg transition-colors cursor-pointer flex-shrink-0 ${importing ? 'opacity-50 pointer-events-none' : ''} bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-300`}>
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+              <polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/>
+            </svg>
+            {importing ? '가져오는 중...' : '엑셀 불러오기'}
+            <input type="file" accept=".xlsx,.xls" className="hidden" onChange={handleImport} />
+          </label>
+          <button onClick={handleExport} disabled={exporting}
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold rounded-lg transition-colors disabled:opacity-50 flex-shrink-0">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+              <polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>
+            </svg>
+            {exporting ? '내보내는 중...' : '엑셀 저장'}
+          </button>
+        </div>
       </div>
 
       {/* 그리드 */}
@@ -466,6 +509,15 @@ export default function SubmissionsTab({ period }) {
         </div>
         )
       })()}
+
+      {/* 엑셀 가져오기 토스트 */}
+      {importMsg && (
+        <div className={`fixed bottom-6 left-1/2 -translate-x-1/2 z-[60] px-4 py-3 rounded-xl shadow-lg text-sm font-semibold flex items-center gap-2 ${
+          importMsg.ok ? 'bg-emerald-600 text-white' : 'bg-red-600 text-white'
+        }`}>
+          {importMsg.ok ? '✓' : '✗'} {importMsg.text}
+        </div>
+      )}
 
       {/* 위반 차단 팝업 */}
       {blockPopup && (

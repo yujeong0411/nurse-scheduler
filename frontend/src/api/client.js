@@ -84,6 +84,10 @@ export const requestsApi = {
     api.put(`/requests/${period_id}/${nurse_id}`, { items }),
   exportXlsx:(period_id) =>
     api.get(`/requests/${period_id}/export`, { responseType: 'blob' }),
+  importXlsx:(period_id, file) => {
+    const fd = new FormData(); fd.append('file', file)
+    return api.post(`/requests/${period_id}/import`, fd)
+  },
 }
 
 // ── 근무표 ────────────────────────────────────────
