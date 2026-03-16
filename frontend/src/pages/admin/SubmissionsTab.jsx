@@ -332,8 +332,11 @@ export default function SubmissionsTab({ period }) {
                         className={`text-center border-b border-r border-slate-200 transition-colors ${isFixedOff ? 'cursor-default' : 'cursor-pointer'}`}
                         style={{
                           background: isActive ? '#dbeafe' : code && !isFixedOff ? '#fef9c3' : baseBg,
+                          boxShadow: isActive ? 'inset 0 0 0 2px #3b82f6' : undefined,
                           padding: '2px 1px',
-                        }}>
+                        }}
+                        onMouseEnter={e => { if (!isFixedOff && !isActive) e.currentTarget.style.background = code ? '#fef3c7' : isSun ? '#fee2e2' : isSat ? '#dbeafe' : '#f1f5f9' }}
+                        onMouseLeave={e => { if (!isActive) e.currentTarget.style.background = isActive ? '#dbeafe' : code && !isFixedOff ? '#fef9c3' : baseBg }}>
                         <div className="flex flex-col items-center justify-center" style={{ minHeight: 22 }}>
                           {isFixedOff ? (
                             <span className="font-semibold" style={{ color: '#854D0E', fontSize: 11 }}>주</span>
@@ -427,57 +430,29 @@ export default function SubmissionsTab({ period }) {
         const { nurseId, day } = activePick
         const nurse = nursesMap[nurseId] || null
         const sd = period?.start_date || null
-        const dateObj = sd ? getDate(sd, day) : null
-        const wd = sd ? getWd(sd, day) : null
         const shiftsForNurse = Object.fromEntries(
           Object.entries(allRequestsRef.current[nurseId] || {}).map(([d, v]) => [+d, v.code])
         )
         const shiftsWithout = { ...shiftsForNurse }; delete shiftsWithout[day]
         const currentCode = shiftsForNurse[day] || ''
-        const popW = Math.min(292, window.innerWidth - 8)
-        const popH = 320
-        const top = activePick.y + 4 + popH > window.innerHeight ? activePick.y - popH - 4 : activePick.y + 4
+        const note = allRequestsRef.current[nurseId]?.[day]?.note
+        const popW = Math.min(260, window.innerWidth - 8)
+        const popH = (blockPopup ? 300 : 210) + (note ? 40 : 0)
+        const top = activePick.y + 2 + popH > window.innerHeight ? activePick.y - popH - 2 : activePick.y + 2
         const left = Math.max(4, Math.min(activePick.x, window.innerWidth - popW - 4))
         return (
         <div ref={pickerRef}
-          className="fixed z-50 bg-white rounded-2xl shadow-xl border border-slate-200"
+          className="fixed z-50 bg-white rounded-xl shadow-xl border border-slate-200"
           style={{ width: popW, top, left }}>
-
-          {/* 헤더 */}
-          <div className="px-3.5 pt-3 pb-2.5 border-b border-slate-100">
-            <div className="flex items-center justify-between">
-              <div>
-                <span className="font-bold text-slate-800 text-sm">{nurse?.name || ''}</span>
-                {dateObj && (
-                  <span className="text-xs text-slate-400 ml-2">
-                    {dateObj.getMonth()+1}월 {dateObj.getDate()}일 ({WD[wd]})
-                  </span>
-                )}
+          <div className="p-2 space-y-1.5">
+            {note && (
+              <div className="flex items-start gap-1 px-1.5 py-1.5 rounded-lg bg-amber-50 border border-amber-200">
+                <span className="text-[10px] text-amber-800 leading-snug">{note}</span>
               </div>
-              <button onClick={() => setActivePick(null)}
-                className="w-6 h-6 flex items-center justify-center text-slate-300 hover:text-slate-500 hover:bg-slate-100 rounded-full transition-colors text-base">
-                ×
-              </button>
-            </div>
-            <NurseInfoBadges nurse={nurse} />
-            {(() => {
-              const note = allRequestsRef.current[nurseId]?.[day]?.note
-              return note ? (
-                <div className="mt-2 flex items-start gap-1.5 px-2.5 py-2 rounded-xl bg-amber-50 border border-amber-200">
-                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#D97706" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="flex-shrink-0 mt-0.5">
-                    <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
-                  </svg>
-                  <span className="text-xs text-amber-800 leading-relaxed">{note}</span>
-                </div>
-              ) : null
-            })()}
-          </div>
-
-          {/* 근무 선택 */}
-          <div className="p-3 space-y-2.5">
+            )}
             {SHIFT_GROUPS.map(grp => (
               <div key={grp.label}>
-                <p className="text-xs font-semibold mb-1.5" style={{ color: grp.color }}>{grp.label}</p>
+                <p className="text-[10px] font-semibold mb-1 px-0.5" style={{ color: grp.color }}>{grp.label}</p>
                 <div className="flex flex-wrap gap-1">
                   {grp.shifts.map(code => {
                     const c = sc(code)
@@ -488,7 +463,7 @@ export default function SubmissionsTab({ period }) {
                         onClick={() => vs.length > 0 && !isCur
                           ? setBlockPopup({ code, violations: vs })
                           : handlePickCode(code)}
-                        className="relative rounded-lg font-bold py-1 px-2.5 text-xs transition-all"
+                        className="relative rounded-md font-bold py-0.5 px-2 text-xs transition-all"
                         style={{
                           background: isCur ? c.fg : c.bg,
                           color: isCur ? 'white' : c.fg,
@@ -506,9 +481,23 @@ export default function SubmissionsTab({ period }) {
                 </div>
               </div>
             ))}
-            <div className="pt-1 border-t border-slate-100">
+
+            {blockPopup && (
+              <div className="rounded-lg p-2 bg-red-50 border border-red-200">
+                <p className="text-[10px] font-bold text-red-700 mb-1">🚫 {blockPopup.code} — 선택 불가</p>
+                {blockPopup.violations.map((v, i) => (
+                  <p key={i} className="text-[10px] text-red-600 leading-snug">• {v}</p>
+                ))}
+                <button onClick={() => setBlockPopup(null)}
+                  className="mt-2 w-full py-1 text-[10px] bg-white rounded font-semibold border border-slate-200 hover:bg-slate-50 transition-colors">
+                  확인
+                </button>
+              </div>
+            )}
+
+            <div className="border-t border-slate-100 pt-1">
               <button onClick={() => handlePickCode('')}
-                className="w-full py-1.5 text-xs font-semibold text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors">
+                className="w-full py-1 text-[10px] font-semibold text-slate-400 hover:text-red-500 hover:bg-red-50 rounded transition-colors">
                 지우기
               </button>
             </div>
@@ -526,22 +515,6 @@ export default function SubmissionsTab({ period }) {
         </div>
       )}
 
-      {/* 위반 차단 팝업 */}
-      {blockPopup && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 px-4"
-          onClick={() => setBlockPopup(null)}>
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm p-5" onClick={e => e.stopPropagation()}>
-            <p className="font-bold text-red-700 text-base mb-3">🚫 {blockPopup.code} — 선택 불가</p>
-            {blockPopup.violations.map((v, i) => (
-              <p key={i} className="text-red-500 text-sm mt-1">• {v}</p>
-            ))}
-            <button onClick={() => setBlockPopup(null)}
-              className="mt-4 w-full py-2.5 rounded-xl font-semibold text-sm bg-slate-100 hover:bg-slate-200 transition-colors">
-              확인
-            </button>
-          </div>
-        </div>
-      )}
     </div>
   )
 }

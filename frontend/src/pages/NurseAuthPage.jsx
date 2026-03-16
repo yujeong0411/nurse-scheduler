@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { nursesApi, authApi } from '../api/client'
 import useAuthStore from '../store/auth'
@@ -14,6 +14,8 @@ export default function NurseAuthPage() {
   const [err, setErr] = useState('')
   const [loading, setLoading] = useState(false)
   const [showPicker, setShowPicker] = useState(false)
+  const [search, setSearch] = useState('')
+  const searchRef = useRef(null)
 
   useEffect(() => {
     nursesApi.names().then(res => setNurses(res.data)).catch(() => { })
@@ -21,7 +23,12 @@ export default function NurseAuthPage() {
 
   const handleSelect = (n) => {
     setNurseId(n.id); setNurseName(n.name)
-    setErr(''); setPin(''); setShowPicker(false)
+    setErr(''); setPin(''); setSearch(''); setShowPicker(false)
+  }
+
+  const handleOpenPicker = () => {
+    setSearch(''); setShowPicker(true)
+    setTimeout(() => searchRef.current?.focus(), 100)
   }
 
   const handleLogin = async () => {
@@ -74,15 +81,10 @@ export default function NurseAuthPage() {
           <div>
             <label className="label">이름 선택</label>
             <button
-              onClick={() => setShowPicker(true)}
-              className="w-full flex items-center justify-between rounded-xl px-4 py-3 text-left transition-all border"
-              style={{
-                border: `1.5px solid ${nurseId ? '#3B82F6' : '#E2E8F0'}`,
-                background: nurseId ? '#EFF6FF' : '#F8FAFC',
-              }}
+              onClick={handleOpenPicker}
+              className="input flex items-center justify-between text-left hover:border-slate-400"
             >
-              <span className={`text-base font-${nurseId ? 'semibold' : 'normal'}`}
-                style={{ color: nurseId ? '#1D4ED8' : '#94A3B8' }}>
+              <span className={nurseId ? 'text-slate-800 font-medium' : 'text-slate-400'}>
                 {nurseName || '이름을 선택하세요'}
               </span>
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#94A3B8" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -143,10 +145,7 @@ export default function NurseAuthPage() {
             </div>
             {/* 헤더 */}
             <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
-              <div>
-                <h3 className="text-lg font-bold text-slate-900">이름 선택</h3>
-                <p className="text-xs text-slate-400 mt-0.5">총 {nurses.length}명</p>
-              </div>
+              <h3 className="text-lg font-bold text-slate-900">이름 선택</h3>
               <button onClick={() => setShowPicker(false)}
                 className="w-8 h-8 flex items-center justify-center rounded-full bg-slate-100 text-slate-500">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
@@ -154,36 +153,67 @@ export default function NurseAuthPage() {
                 </svg>
               </button>
             </div>
+            {/* 검색 */}
+            <div className="px-4 py-2.5 border-b border-slate-100">
+              <div className="flex items-center gap-2 bg-slate-100 rounded-xl px-3 py-2">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#94A3B8" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+                </svg>
+                <input
+                  ref={searchRef}
+                  type="text"
+                  value={search}
+                  onChange={e => setSearch(e.target.value)}
+                  placeholder="이름 검색..."
+                  className="flex-1 bg-transparent text-sm text-slate-800 placeholder-slate-400 outline-none"
+                />
+                {search && (
+                  <button onClick={() => setSearch('')} className="text-slate-400 hover:text-slate-600">
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                      <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+                    </svg>
+                  </button>
+                )}
+              </div>
+            </div>
             {/* 목록 */}
             <div className="overflow-y-auto flex-1 py-2">
-              {nurses.length === 0 && (
-                <div className="text-center py-12 text-slate-400 text-sm">
-                  등록된 간호사가 없습니다.<br />관리자에게 문의하세요.
-                </div>
-              )}
-              {nurses.map(n => {
-                const isSel = n.id === nurseId
-                return (
-                  <button key={n.id} onClick={() => handleSelect(n)}
-                    className="w-full flex items-center justify-between px-5 py-3.5 text-left hover:bg-slate-50 transition-colors"
-                    style={{ background: isSel ? '#EFF6FF' : undefined }}>
-                    <div>
-                      <span className={`text-base font-${isSel ? 'bold' : 'medium'}`}
-                        style={{ color: isSel ? '#1D4ED8' : '#0F172A' }}>{n.name}</span>
-                      {(n.grade || n.role) && (
-                        <span className="ml-2 text-xs text-slate-400">
-                          {[n.grade, n.role].filter(Boolean).join(' · ')}
-                        </span>
-                      )}
-                    </div>
-                    {isSel && (
-                      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#2563EB" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                        <polyline points="20 6 9 17 4 12" />
-                      </svg>
-                    )}
-                  </button>
+              {(() => {
+                const filtered = nurses.filter(n => n.name.includes(search))
+                if (nurses.length === 0) return (
+                  <div className="text-center py-12 text-slate-400 text-sm">
+                    등록된 간호사가 없습니다.<br />관리자에게 문의하세요.
+                  </div>
                 )
-              })}
+                if (filtered.length === 0) return (
+                  <div className="text-center py-12 text-slate-400 text-sm">
+                    '{search}'에 해당하는 이름이 없습니다.
+                  </div>
+                )
+                return filtered.map(n => {
+                  const isSel = n.id === nurseId
+                  return (
+                    <button key={n.id} onClick={() => handleSelect(n)}
+                      className="w-full flex items-center justify-between px-5 py-3.5 text-left hover:bg-slate-50 transition-colors"
+                      style={{ background: isSel ? '#EAECF4' : undefined }}>
+                      <div>
+                        <span className={`text-base font-${isSel ? 'bold' : 'medium'}`}
+                          style={{ color: isSel ? '#2A3A7A' : '#0F172A' }}>{n.name}</span>
+                        {(n.grade || n.role) && (
+                          <span className="ml-2 text-xs text-slate-400">
+                            {[n.grade, n.role].filter(Boolean).join(' · ')}
+                          </span>
+                        )}
+                      </div>
+                      {isSel && (
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#2A3A7A" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                          <polyline points="20 6 9 17 4 12" />
+                        </svg>
+                      )}
+                    </button>
+                  )
+                })
+              })()}
               <div className="h-6" />
             </div>
           </div>

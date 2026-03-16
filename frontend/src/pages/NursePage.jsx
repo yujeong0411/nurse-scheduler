@@ -164,7 +164,8 @@ export default function NursePage() {
   )
 
   return (
-    <div className="min-h-screen bg-slate-50 flex flex-col">
+    <div className="min-h-screen bg-slate-200 flex justify-center">
+    <div className="w-full max-w-lg bg-slate-50 flex flex-col min-h-screen">
 
       {/* 헤더 */}
       <header className="bg-white border-b border-slate-200 sticky top-0 z-10">
@@ -390,7 +391,7 @@ export default function NursePage() {
 
       {/* 제출 버튼 */}
       {startDate && !passed && (
-        <div className="fixed bottom-0 left-0 right-0 px-4 pb-6 pt-3 bg-white/95 backdrop-blur-sm border-t border-slate-100">
+        <div className="fixed bottom-0 left-1/2 -translate-x-1/2 w-full max-w-lg px-4 pb-6 pt-3 bg-white/95 backdrop-blur-sm border-t border-slate-100">
           <button onClick={handleSubmit} disabled={saving}
             className="w-full rounded-2xl font-bold text-white py-4 text-base transition-all active:scale-[0.98] disabled:opacity-60"
             style={saved
@@ -437,7 +438,7 @@ export default function NursePage() {
 
       {/* 토스트 */}
       {toast && (
-        <div className="fixed top-4 left-4 right-4 z-50 flex justify-center pointer-events-none">
+        <div className="fixed top-4 left-1/2 -translate-x-1/2 w-full max-w-md px-4 z-50 flex justify-center pointer-events-none">
           <div className={`flex items-center gap-2 rounded-2xl px-4 py-3 shadow-lg text-sm font-semibold border ${toast.ok ? 'bg-white text-emerald-700 border-emerald-100' : 'bg-white text-red-600 border-red-100'}`}>
             {toast.ok ? (
               <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
@@ -452,6 +453,7 @@ export default function NursePage() {
           </div>
         </div>
       )}
+    </div>
     </div>
   )
 }

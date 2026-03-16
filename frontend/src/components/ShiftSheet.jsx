@@ -39,9 +39,9 @@ export default function ShiftSheet({ day, shifts, notes = {}, nurse, rules, star
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex flex-col justify-end"
+    <div className="fixed inset-0 z-50 flex flex-col justify-end items-center"
       style={{ background: 'rgba(0,0,0,0.5)' }} onClick={onClose}>
-      <div className="bg-white rounded-t-3xl shadow-2xl flex flex-col"
+      <div className="bg-white rounded-t-3xl shadow-2xl flex flex-col w-full max-w-lg"
         style={{ maxHeight: '85vh' }} onClick={e => e.stopPropagation()}>
 
         {/* 핸들 */}

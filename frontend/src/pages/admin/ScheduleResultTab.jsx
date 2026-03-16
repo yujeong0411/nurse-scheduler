@@ -38,103 +38,96 @@ function NurseInfoBadges({ nurse }) {
   )
 }
 
-function CellEditModal({ nurse, day, startDate, currentShift, onSave, onClose }) {
-  const [shift, setShift] = useState(currentShift || '')
-  const [err, setErr] = useState('')
+function CellEditModal({ nurse, day, startDate, currentShift, rect, onSave, onClose }) {
+  const [pendingViolations, setPendingViolations] = useState(null) // { shift, violations[] }
   const [saving, setSaving] = useState(false)
-  const [violations, setViolations] = useState([])
+  const modalRef = useRef(null)
 
-  const dateObj = getDate(startDate, day)
-  const wd = getWd(startDate, day)
+  useEffect(() => {
+    const handleClick = (e) => {
+      if (modalRef.current && !modalRef.current.contains(e.target)) onClose()
+    }
+    document.addEventListener('mousedown', handleClick)
+    return () => document.removeEventListener('mousedown', handleClick)
+  }, [onClose])
 
-  const handleSave = async (force = false) => {
-    setSaving(true); setErr('')
+  const popW = Math.min(260, window.innerWidth - 8)
+  const popH = pendingViolations ? 300 : 210
+  const top = rect.bottom + 2 + popH > window.innerHeight ? rect.top - popH - 2 : rect.bottom + 2
+  const left = Math.max(4, Math.min(rect.left, window.innerWidth - popW - 4))
+
+  const handleSelect = async (shift, force = false) => {
+    if (saving) return
+    setSaving(true)
     try {
       const res = await onSave(day, shift, force)
       if (res.violations?.length && !force) {
-        setViolations(res.violations)
-        setSaving(false)
-        return
+        setPendingViolations({ shift, violations: res.violations })
+      } else {
+        onClose()
       }
-      onClose()
-    } catch (e) {
-      setErr(e.response?.data?.detail || '저장 실패')
-    } finally { setSaving(false) }
+    } finally {
+      setSaving(false)
+    }
   }
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4" onClick={onClose}>
-      <div className="bg-white rounded-2xl shadow-xl p-5 w-full max-w-sm" onClick={e => e.stopPropagation()}>
-
-        {/* 헤더: 이름 + 날짜 + 닫기 */}
-        <div className="flex items-start justify-between mb-3">
-          <div>
-            <h3 className="font-bold text-slate-900 text-base">{nurse.name}</h3>
-            <p className="text-xs text-slate-400 mt-0.5">{dateObj.getMonth()+1}월 {dateObj.getDate()}일 ({WD[wd]})</p>
-            <NurseInfoBadges nurse={nurse} />
-          </div>
-          <button onClick={onClose}
-            className="w-7 h-7 flex items-center justify-center bg-slate-100 hover:bg-slate-200 rounded-full text-slate-400 text-base transition-colors flex-shrink-0 ml-2">
-            ×
-          </button>
-        </div>
-
-        <div className="h-px bg-slate-100 mb-3" />
-
-        {/* 근무 선택 */}
-        <div className="space-y-2.5 mb-4">
-          {SHIFT_GROUPS.map(grp => (
-            <div key={grp.label}>
-              <p className="text-xs font-semibold mb-1.5" style={{ color: grp.color }}>{grp.label}</p>
-              <div className="flex flex-wrap gap-1">
-                {grp.shifts.map(s => {
-                  const st = sc(s)
-                  const isSel = s === shift
-                  return (
-                    <button key={s} onClick={() => setShift(s)}
-                      className="rounded-lg font-bold py-1 px-2.5 text-xs transition-all"
-                      style={{
-                        background: isSel ? st.fg : st.bg,
-                        color: isSel ? 'white' : st.fg,
-                        border: `1.5px solid ${isSel ? st.fg : st.border}`,
-                      }}>
-                      {s}
-                    </button>
-                  )
-                })}
-              </div>
+    <div ref={modalRef}
+      className="fixed z-50 bg-white rounded-xl shadow-xl border border-slate-200"
+      style={{ width: popW, top, left }}>
+      <div className="p-2 space-y-1.5">
+        {SHIFT_GROUPS.map(grp => {
+          const shifts = grp.shifts.filter(s => !s.includes('제외'))
+          if (!shifts.length) return null
+          return (
+          <div key={grp.label}>
+            <p className="text-[10px] font-semibold mb-1 px-0.5" style={{ color: grp.color }}>{grp.label}</p>
+            <div className="flex flex-wrap gap-1">
+              {shifts.map(s => {
+                const st = sc(s)
+                const isSel = s === currentShift
+                return (
+                  <button key={s} onClick={() => handleSelect(s)} disabled={saving}
+                    className="rounded-md font-bold py-0.5 px-2 text-xs transition-all disabled:opacity-40"
+                    style={{
+                      background: isSel ? st.fg : st.bg,
+                      color: isSel ? 'white' : st.fg,
+                      border: `1.5px solid ${isSel ? st.fg : st.border}`,
+                    }}>
+                    {s}
+                  </button>
+                )
+              })}
             </div>
-          ))}
-          <div className="pt-1 border-t border-slate-100">
-            <button onClick={() => setShift('')}
-              className={`w-full py-1.5 rounded-lg text-xs font-semibold transition-colors ${shift === '' ? 'bg-slate-200 text-slate-700' : 'text-slate-400 hover:text-red-500 hover:bg-red-50'}`}>
-              없음 (삭제)
-            </button>
           </div>
-        </div>
+          )
+        })}
 
-        {/* 위반 경고 */}
-        {violations.length > 0 && (
-          <div className="mb-3 rounded-xl p-3 bg-red-50 border border-red-200">
-            <p className="text-xs font-bold text-red-700 mb-1">⚠️ 규칙 위반</p>
-            {violations.map((v, i) => <p key={i} className="text-xs text-red-600">• {v}</p>)}
-            <div className="flex gap-2 mt-3">
-              <button onClick={() => setViolations([])}
-                className="flex-1 text-xs py-2 bg-white rounded-lg font-semibold border border-slate-200 hover:bg-slate-50 transition-colors">취소</button>
-              <button onClick={() => handleSave(true)}
-                className="flex-1 text-xs py-2 bg-red-500 text-white rounded-lg font-bold hover:bg-red-600 transition-colors">무시하고 저장</button>
+        {pendingViolations && (
+          <div className="rounded-lg p-2 bg-red-50 border border-red-200">
+            <p className="text-[10px] font-bold text-red-700 mb-1">⚠️ 규칙 위반</p>
+            {pendingViolations.violations.map((v, i) => (
+              <p key={i} className="text-[10px] text-red-600 leading-snug">• {v}</p>
+            ))}
+            <div className="flex gap-1.5 mt-2">
+              <button onClick={() => setPendingViolations(null)}
+                className="flex-1 text-[10px] py-1 bg-white rounded font-semibold border border-slate-200 hover:bg-slate-50 transition-colors">
+                취소
+              </button>
+              <button onClick={() => handleSelect(pendingViolations.shift, true)}
+                className="flex-1 text-[10px] py-1 bg-red-500 text-white rounded font-bold hover:bg-red-600 transition-colors">
+                무시하고 저장
+              </button>
             </div>
           </div>
         )}
 
-        {err && <p className="text-xs text-red-600 text-center mb-3">{err}</p>}
-
-        {violations.length === 0 && (
-          <button onClick={() => handleSave(false)} disabled={saving}
-            className="w-full py-2.5 bg-blue-600 text-white rounded-xl font-bold text-sm disabled:opacity-50 hover:bg-blue-700 transition-colors">
-            {saving ? '저장 중...' : '저장'}
+        <div className="border-t border-slate-100 pt-1">
+          <button onClick={() => handleSelect('')} disabled={saving}
+            className="w-full py-1 text-[10px] font-semibold text-slate-400 hover:text-red-500 hover:bg-red-50 rounded transition-colors disabled:opacity-40">
+            지우기
           </button>
-        )}
+        </div>
       </div>
     </div>
   )
@@ -545,16 +538,20 @@ export default function ScheduleResultTab({ period }) {
                       const unmatched = hasReq && !matched
                       const reqLabel = unmatched ? req.codes.filter(c => !c.includes('제외')).join('/') : null
                       const isWeeklyOff = s === '주'
+                      const isActive = editCell?.nurseId === nurse.id && editCell?.day === d
                       const textColor = s === 'N' ? '#B91C1C' : s === '주' ? '#854D0E' : '#374151'
+                      const baseBg = hasReq ? '#fef9c3' : isSun ? '#fef2f2' : isSat ? '#eff6ff' : '#ffffff'
                       return (
                         <td key={d}
-                          onClick={() => !isWeeklyOff && scheduleId && setEditCell({ nurseId: nurse.id, nurseObj: nurse, day: d })}
+                          onClick={e => !isWeeklyOff && scheduleId && setEditCell({ nurseId: nurse.id, nurseObj: nurse, day: d, rect: e.currentTarget.getBoundingClientRect() })}
                           className={`text-center border-b border-r border-slate-200 transition-colors ${isWeeklyOff ? 'cursor-default' : 'cursor-pointer'}`}
                           style={{
-                            background: hasReq ? '#fef9c3' : isSun ? '#fef2f2' : isSat ? '#eff6ff' : undefined,
-                            boxShadow: unmatched ? 'inset 0 0 0 2px #ef4444' : undefined,
+                            background: isActive ? '#dbeafe' : baseBg,
+                            boxShadow: isActive ? 'inset 0 0 0 2px #3b82f6' : unmatched ? 'inset 0 0 0 2px #ef4444' : undefined,
                             padding: '2px 1px',
-                          }}>
+                          }}
+                          onMouseEnter={e => { if (!isWeeklyOff && !isActive) e.currentTarget.style.background = hasReq ? '#fef3c7' : isSun ? '#fee2e2' : isSat ? '#dbeafe' : '#f1f5f9' }}
+                          onMouseLeave={e => { if (!isActive) e.currentTarget.style.background = baseBg }}>
                           <div className="flex flex-col items-center justify-center" style={{ minHeight: 22 }}>
                             {s ? (
                               <span className="font-semibold" style={{ color: textColor, fontSize: 11 }}>{s}</span>
@@ -712,6 +709,7 @@ export default function ScheduleResultTab({ period }) {
           day={editCell.day}
           startDate={startDate}
           currentShift={scheduleData?.[editCell.nurseId]?.[editCell.day] || scheduleData?.[editCell.nurseId]?.[String(editCell.day)] || ''}
+          rect={editCell.rect}
           onSave={handleCellEdit}
           onClose={() => setEditCell(null)}
         />

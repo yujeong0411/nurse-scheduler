@@ -111,6 +111,7 @@ export default function NurseManagementTab() {
   const [msg, setMsg] = useState({ text: '', ok: true })
   const [pinReset, setPinReset] = useState({})
   const [applying, setApplying] = useState(false)
+  const [importing, setImporting] = useState(false)
 
   const load = () => {
     nursesApi.list().then(res => setNurses(res.data)).catch(() => {}).finally(() => setLoading(false))
@@ -145,10 +146,12 @@ export default function NurseManagementTab() {
   const handleExcelImport = async (e) => {
     const file = e.target.files[0]
     if (!file) return
+    setImporting(true)
     try {
       const res = await nursesApi.importExcel(file)
       showMsg(`${res.data.length}명 가져오기 완료`); load()
     } catch (err) { showMsg(err.response?.data?.detail || '엑셀 가져오기 실패', false) }
+    finally { setImporting(false) }
     e.target.value = ''
   }
 
@@ -195,13 +198,17 @@ export default function NurseManagementTab() {
           </svg>
           간호사 추가
         </button>
-        <label className="btn-secondary flex-1 text-sm lg:text-base flex items-center justify-center gap-2 cursor-pointer">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
-            <polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/>
-          </svg>
-          규칙 엑셀
-          <input type="file" accept=".xlsx,.xls" className="hidden" onChange={handleExcelImport} />
+        <label className={`btn-secondary flex-1 text-sm lg:text-base flex items-center justify-center gap-2 ${importing ? 'opacity-60 cursor-not-allowed' : 'cursor-pointer'}`}>
+          {importing ? (
+            <div className="w-3.5 h-3.5 border-2 border-slate-300 border-t-slate-600 rounded-full animate-spin" />
+          ) : (
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+              <polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/>
+            </svg>
+          )}
+          {importing ? '가져오는 중...' : '규칙 엑셀'}
+          <input type="file" accept=".xlsx,.xls" className="hidden" onChange={handleExcelImport} disabled={importing} />
         </label>
       </div>
 
@@ -250,12 +257,15 @@ export default function NurseManagementTab() {
         </div>
       </div>
 
-      {/* 메시지 */}
+      {/* 토스트 메시지 */}
       {msg.text && (
-        <div className={`rounded-xl px-4 py-3 text-sm font-semibold border ${
-          msg.ok ? 'bg-green-50 text-green-700 border-green-200 text-center' : 'bg-red-50 text-red-600 border-red-200'
-        }`} style={{ whiteSpace: 'pre-line' }}>
-          {msg.ok ? '✓ ' : '✗ '}{msg.text}
+        <div className="fixed top-4 left-1/2 -translate-x-1/2 z-50 pointer-events-none">
+          <div className={`flex items-start gap-2 rounded-xl px-4 py-3 shadow-lg text-sm font-semibold border max-w-sm ${
+            msg.ok ? 'bg-white text-emerald-700 border-emerald-200' : 'bg-white text-red-600 border-red-200'
+          }`} style={{ whiteSpace: 'pre-line' }}>
+            <span className="flex-shrink-0 mt-0.5">{msg.ok ? '✓' : '✗'}</span>
+            <span>{msg.text}</span>
+          </div>
         </div>
       )}
 
