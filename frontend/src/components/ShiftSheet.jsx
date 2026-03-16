@@ -158,8 +158,8 @@ export default function ShiftSheet({ day, shifts, notes = {}, nurse, rules, star
                               style={{ width: 16, height: 16, fontSize: 9 }}>!</span>
                           )}
                           {isCur && (
-                            <span className="absolute -top-1.5 -right-1.5 text-white rounded-full flex items-center justify-center font-black" style={{ background: '#2A3A7A' }}
-                              style={{ width: 16, height: 16, fontSize: 9 }}>✓</span>
+                            <span className="absolute -top-1.5 -right-1.5 text-white rounded-full flex items-center justify-center font-black"
+                              style={{ background: '#2A3A7A', width: 16, height: 16, fontSize: 9 }}>✓</span>
                           )}
                         </button>
                       )

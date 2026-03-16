@@ -222,7 +222,20 @@ def import_prev_excel(
         date.fromisoformat(active_period["start_date"])
         if active_period and active_period.get("start_date") else None
     )
-    expected_prev = (new_start_date - timedelta(days=28)) if new_start_date else None
+
+    # 직전 기간 시작일을 DB에서 조회 (timedelta 추정 오류 방지)
+    expected_prev = None
+    if new_start_date:
+        active_period_id = active_period["id"] if active_period else None
+        prev_periods = db_periods(db).order("start_date", desc=True).execute()
+        for p in prev_periods.data:
+            if p["id"] == active_period_id:
+                continue
+            if p.get("start_date"):
+                pd = date.fromisoformat(p["start_date"])
+                if pd < new_start_date:
+                    expected_prev = pd
+                    break
 
     content = file.file.read()
     tmp = tempfile.NamedTemporaryFile(suffix=".xlsx", delete=False)
@@ -234,14 +247,16 @@ def import_prev_excel(
         nurses_res = db_nurses(db).order("sort_order").execute()
         nurse_names = [n["name"] for n in nurses_res.data]
 
-        TAIL_DAYS = 5
-        tail_result, n_counts, sleep_counts, vac_days = import_prev_schedule(
-            tmp_path, nurse_names, TAIL_DAYS, expected_start_date=expected_prev
-        )
-
-        # 이전 근무표 시작일 탐지 (생휴 월 계산용) — 타이틀 셀 "YYYY.MM.DD ~ ..." 기준
+        # 이전 근무표 시작일 탐지 — import_prev_schedule에 넘겨 월별 N 분류에 사용
         year, month = detect_file_month(tmp_path)
         prev_start_date = date(year, month, 1) if year and month else expected_prev
+
+        TAIL_DAYS = 5
+        tail_result, n_counts_by_month, sleep_counts, vac_days = import_prev_schedule(
+            tmp_path, nurse_names, TAIL_DAYS,
+            expected_start_date=expected_prev,
+            start_date=prev_start_date,
+        )
 
         # 생휴 월별 집계
         menstrual_counts = (
@@ -254,10 +269,8 @@ def import_prev_excel(
         sleep_n_monthly = rules_res.data[0].get("sleep_n_monthly", 7) if rules_res.data else 7
 
     except ValueError as e:
-        os.unlink(tmp_path)
         raise HTTPException(400, f"파일 검증 실패: {e}")
     except Exception as e:
-        os.unlink(tmp_path)
         raise HTTPException(400, f"엑셀 파싱 오류: {e}")
     finally:
         try:
@@ -273,12 +286,14 @@ def import_prev_excel(
         if name not in tail_result:
             continue  # 매칭 안 된 간호사 스킵
 
-        prev_month_n = n_counts.get(name, 0)
+        by_month = n_counts_by_month.get(name, {})
+        prev_month_n = sum(by_month.values())  # DB 저장용 총 N 수
+        odd_month_n = by_month.get(prev_month, 0)  # 홀수 시작월 N만 (pending_sleep 판단)
         sleep_used = sleep_counts.get(name, 0)
 
         pending_sleep = (
             is_pair_first_month(prev_month)
-            and prev_month_n >= sleep_n_monthly
+            and odd_month_n >= sleep_n_monthly
             and sleep_used == 0
         )
 

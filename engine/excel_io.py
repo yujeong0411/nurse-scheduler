@@ -34,20 +34,23 @@ def load_workbook_safe(filepath: str, password: str | None = None, **kw):
     - 암호화 + password 있음: msoffcrypto로 복호화 후 BytesIO에서 열기
     - 암호화 + password 없음: EncryptedFileError 발생
     """
+    # 파일을 먼저 메모리로 읽어 OS 파일 핸들을 즉시 해제 (Windows 잠금 방지)
+    with open(filepath, "rb") as f:
+        raw = f.read()
+
     try:
         import msoffcrypto
     except ImportError:
-        return load_workbook(filepath, **kw)
+        return load_workbook(io.BytesIO(raw), **kw)
 
-    with open(filepath, "rb") as f:
-        office_file = msoffcrypto.OfficeFile(f)
-        if not office_file.is_encrypted():
-            return load_workbook(filepath, **kw)
-        if password is None:
-            raise EncryptedFileError("파일이 암호화되어 있습니다. 비밀번호가 필요합니다.")
-        office_file.load_key(password=password)
-        buf = io.BytesIO()
-        office_file.decrypt(buf)
+    office_file = msoffcrypto.OfficeFile(io.BytesIO(raw))
+    if not office_file.is_encrypted():
+        return load_workbook(io.BytesIO(raw), **kw)
+    if password is None:
+        raise EncryptedFileError("파일이 암호화되어 있습니다. 비밀번호가 필요합니다.")
+    office_file.load_key(password=password)
+    buf = io.BytesIO()
+    office_file.decrypt(buf)
     buf.seek(0)
     return load_workbook(buf, **kw)
 
@@ -863,7 +866,8 @@ def import_prev_schedule(
     tail_days: int = 5,
     password: str | None = None,
     expected_start_date=None,
-) -> tuple[dict[str, list[str]], dict[str, int], dict[str, int], dict[str, int]]:
+    start_date=None,
+) -> tuple[dict[str, list[str]], dict[str, dict[int, int]], dict[str, int], dict[str, int]]:
     """이전 달 근무표 엑셀에서 마지막 tail_days일의 근무 + 전체 N 횟수 + 수면 횟수 + 휴가잔여 추출
 
     export_schedule 형식 기준:
@@ -876,9 +880,9 @@ def import_prev_schedule(
         tail_days: 추출할 마지막 일수 (기본 5)
 
     Returns:
-        (tail_shifts, n_counts, sleep_counts, vac_days)
+        (tail_shifts, n_counts_by_month, sleep_counts, vac_days)
         - tail_shifts: {이름: [근무코드 리스트]} (가장 오래된 순)
-        - n_counts: {이름: 전월 N 총 횟수}
+        - n_counts_by_month: {이름: {월(int): N 횟수}} — start_date 없으면 {0: 총횟수}
         - sleep_counts: {이름: 전월 수면 사용 횟수}
         - vac_days: {이름: 휴가잔여 일수}
     """
@@ -969,18 +973,19 @@ def import_prev_schedule(
             shifts.append(code if code else val)
         tail_result[name] = shifts
 
-        # 전체 N 횟수 + 수면 횟수
-        n_count = 0
+        # 전체 N 횟수(월별) + 수면 횟수
+        n_by_month: dict[int, int] = {}
         sleep_count = 0
         for d in all_day_range:
             col = day_cols[d]
             c = row[col - 1] if col - 1 < len(row) else None
             val = str(c.value).strip() if c and c.value else ""
             if val == "N":
-                n_count += 1
+                m = (start_date + timedelta(days=d - 1)).month if start_date else 0
+                n_by_month[m] = n_by_month.get(m, 0) + 1
             if val == "수면":
                 sleep_count += 1
-        n_counts[name] = n_count
+        n_counts[name] = n_by_month
         sleep_counts[name] = sleep_count
 
         # 휴가잔여 추출
