@@ -50,7 +50,10 @@
       "Bash(/c/Users/choiy/Desktop/nurse-scheduler/backend/.venv/Scripts/python.exe run_full_test.py 2>&1 | head -20)",
       "Bash(/c/Users/choiy/Desktop/nurse-scheduler/backend/.venv/Scripts/python.exe test_special_offs.py 2>&1)",
       "Bash(/c/Users/choiy/Desktop/nurse-scheduler/backend/.venv/Scripts/python.exe test_real_data.py 2>&1 | tail -5)",
-      "Bash(git add:*)"
+      "Bash(git add:*)",
+      "Bash(npm install:*)",
+      "Bash(npm list:*)",
+      "Bash(npx tsc:*)"
     ]
   }
 }

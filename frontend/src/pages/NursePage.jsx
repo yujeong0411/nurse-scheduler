@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
+import Joyride, { STATUS } from 'react-joyride'
 import { useNavigate } from 'react-router-dom'
 import { requestsApi, settingsApi, rulesApi, nursesApi, holidaysApi } from '../api/client'
 import useAuthStore from '../store/auth'
@@ -9,6 +10,74 @@ import {
 } from '../utils/constants'
 import ShiftSheet from '../components/ShiftSheet'
 import PinModal from '../components/PinModal'
+
+function TourTooltip({ continuous, index, step, size, backProps, closeProps, primaryProps, skipProps, isLastStep }) {
+  return (
+    <div style={{
+      background: '#fff',
+      borderRadius: 20,
+      boxShadow: '0 8px 40px rgba(0,0,0,0.18)',
+      width: 300,
+      overflow: 'hidden',
+      fontFamily: "'Inter', '맑은 고딕', 'Apple SD Gothic Neo', sans-serif",
+    }}>
+      {/* 상단 컬러 바 */}
+      <div style={{ height: 4, background: 'linear-gradient(90deg, #2A3A7A, #4B6CB7)' }} />
+
+      <div style={{ padding: '20px 20px 16px' }}>
+        {/* 스텝 인디케이터 */}
+        <div style={{ display: 'flex', gap: 5, marginBottom: 12 }}>
+          {Array.from({ length: size }).map((_, i) => (
+            <div key={i} style={{
+              height: 3, flex: 1, borderRadius: 2,
+              background: i <= index ? '#2A3A7A' : '#E2E8F0',
+              transition: 'background 0.3s',
+            }} />
+          ))}
+        </div>
+
+        {/* 제목 */}
+        {step.title && (
+          <p style={{ margin: '0 0 8px', fontSize: 15, fontWeight: 700, color: '#0F172A' }}>
+            {step.title}
+          </p>
+        )}
+
+        {/* 내용 */}
+        <p style={{ margin: 0, fontSize: 13.5, color: '#475569', lineHeight: 1.6 }}>
+          {step.content}
+        </p>
+      </div>
+
+      {/* 버튼 영역 */}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 16px 16px' }}>
+        <button {...skipProps} style={{
+          background: 'none', border: 'none', cursor: 'pointer',
+          fontSize: 12, color: '#94A3B8', fontFamily: 'inherit', padding: '6px 4px',
+        }}>
+          건너뛰기
+        </button>
+
+        <div style={{ display: 'flex', gap: 8 }}>
+          {index > 0 && (
+            <button {...backProps} style={{
+              background: '#F1F5F9', border: 'none', borderRadius: 10, cursor: 'pointer',
+              fontSize: 13, fontWeight: 600, color: '#475569', padding: '8px 16px', fontFamily: 'inherit',
+            }}>
+              이전
+            </button>
+          )}
+          <button {...(isLastStep ? closeProps : primaryProps)} style={{
+            background: '#2A3A7A', border: 'none', borderRadius: 10, cursor: 'pointer',
+            fontSize: 13, fontWeight: 700, color: '#fff', padding: '8px 18px', fontFamily: 'inherit',
+          }}>
+            {isLastStep ? '완료' : '다음 →'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
 
 export default function NursePage() {
   const navigate = useNavigate()
@@ -27,6 +96,52 @@ export default function NursePage() {
   const [showPin, setShowPin] = useState(false)
   const [toast, setToast] = useState(null)
   const [holidayNames, setHolidayNames] = useState({}) // period day → 공휴일 이름
+  const [tourRun, setTourRun] = useState(false)
+
+  const TOUR_STEPS = [
+    {
+      target: 'body',
+      placement: 'center',
+      disableBeacon: true,
+      title: '근무 신청 가이드',
+      content: '이 앱에서 다음 달 근무를 신청할 수 있습니다. 간단한 사용법을 안내해드릴게요.',
+    },
+    {
+      target: '#nurse-info',
+      placement: 'bottom',
+      disableBeacon: true,
+      title: '내 정보',
+      content: '내 직급, 역할, 연차 잔여일 등을 확인할 수 있습니다.',
+    },
+    {
+      target: '#nurse-deadline',
+      placement: 'bottom',
+      disableBeacon: true,
+      title: '신청 마감일',
+      content: '마감일 전까지만 신청이 가능합니다. 마감 후에는 제출이 잠깁니다.',
+    },
+    {
+      target: '#nurse-calendar',
+      placement: 'top',
+      disableBeacon: true,
+      title: '근무 달력',
+      content: '날짜를 탭하면 근무(D·E·N)나 휴무(OFF·휴가 등)를 신청할 수 있습니다. 이미 신청한 날짜를 다시 탭하면 수정할 수 있어요.',
+    },
+    {
+      target: '#nurse-submit',
+      placement: 'top',
+      disableBeacon: true,
+      title: '신청 제출',
+      content: '신청이 끝나면 반드시 이 버튼을 눌러 제출하세요. 제출 전에는 저장되지 않습니다.',
+    },
+    {
+      target: '#nurse-pin-btn',
+      placement: 'bottom',
+      disableBeacon: true,
+      title: 'PIN 변경',
+      content: '초기 PIN은 0000입니다. 여기서 본인만 아는 번호로 변경할 수 있습니다.',
+    },
+  ]
 
   const showToast = (msg, ok = true) => {
     setToast({ msg, ok })
@@ -81,6 +196,7 @@ export default function NursePage() {
         if (e.response?.status === 401) { clearAuth(); navigate('/') }
       } finally {
         setLoading(false)
+        if (!localStorage.getItem('nurse_tour_done')) setTourRun(true)
       }
     })()
   }, [])
@@ -163,9 +279,31 @@ export default function NursePage() {
     </div>
   )
 
+  const tourSteps = TOUR_STEPS.filter(s => {
+    if (s.target === '#nurse-deadline' && !deadline) return false
+    if ((s.target === '#nurse-calendar' || s.target === '#nurse-submit') && !startDate) return false
+    return true
+  })
+
   return (
     <div className="min-h-screen bg-slate-200 flex justify-center">
     <div className="w-full max-w-lg bg-slate-50 flex flex-col min-h-screen">
+      <Joyride
+        steps={tourSteps}
+        run={tourRun}
+        continuous
+        scrollToFirstStep
+        spotlightClicks={false}
+        disableOverlayClose
+        tooltipComponent={TourTooltip}
+        styles={{ options: { zIndex: 1100, spotlightShadow: '0 0 0 9999px rgba(0,0,0,0.55)' } }}
+        callback={({ status }) => {
+          if ([STATUS.FINISHED, STATUS.SKIPPED].includes(status)) {
+            setTourRun(false)
+            localStorage.setItem('nurse_tour_done', '1')
+          }
+        }}
+      />
 
       {/* 헤더 */}
       <header className="bg-white border-b border-slate-200 sticky top-0 z-10">
@@ -190,7 +328,12 @@ export default function NursePage() {
           )}
 
           <div className="flex items-center gap-2">
-            <button onClick={() => setShowPin(true)}
+            <button onClick={() => setTourRun(true)}
+              className="flex items-center justify-center text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-full transition-colors"
+              style={{ width: 28, height: 28, fontSize: 13, fontWeight: 700 }}>
+              ?
+            </button>
+            <button id="nurse-pin-btn" onClick={() => setShowPin(true)}
               className="flex items-center gap-1.5 text-slate-500 hover:text-slate-800 text-xs font-medium px-2.5 py-1.5 rounded-lg hover:bg-slate-100 transition-colors">
               <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
@@ -220,7 +363,7 @@ export default function NursePage() {
 
       {/* 내 정보 카드 — 마감 배너 위 */}
       {nurse && (
-        <div className="bg-white border-b border-slate-100 px-4 py-3">
+        <div id="nurse-info" className="bg-white border-b border-slate-100 px-4 py-3">
           <div className="flex flex-wrap gap-1.5">
             {nurse.grade && (
               <span className="px-2.5 py-1 rounded-full text-xs font-bold"
@@ -258,7 +401,7 @@ export default function NursePage() {
 
       {/* 마감 배너 */}
       {deadline && (
-        <div className={`flex items-center justify-center gap-2 py-2 text-xs font-semibold ${passed ? 'bg-red-50 text-red-600 border-b border-red-100' : 'bg-amber-50 text-amber-700 border-b border-amber-100'}`}>
+        <div id="nurse-deadline" className={`flex items-center justify-center gap-2 py-2 text-xs font-semibold ${passed ? 'bg-red-50 text-red-600 border-b border-red-100' : 'bg-amber-50 text-amber-700 border-b border-amber-100'}`}>
           {passed ? (
             <>
               <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -308,7 +451,7 @@ export default function NursePage() {
           )}
 
           {/* 달력 */}
-          <div className="bg-white rounded-2xl overflow-hidden border border-slate-100 shadow-sm">
+          <div id="nurse-calendar" className="bg-white rounded-2xl overflow-hidden border border-slate-100 shadow-sm">
             {/* 요일 헤더 (일요일 시작) */}
             <div className="grid grid-cols-7 pt-3 pb-2">
               {['일','월','화','수','목','금','토'].map((label, i) => (
@@ -391,7 +534,7 @@ export default function NursePage() {
 
       {/* 제출 버튼 */}
       {startDate && !passed && (
-        <div className="fixed bottom-0 left-1/2 -translate-x-1/2 w-full max-w-lg px-4 pb-6 pt-3 bg-white/95 backdrop-blur-sm border-t border-slate-100">
+        <div id="nurse-submit" className="fixed bottom-0 left-1/2 -translate-x-1/2 w-full max-w-lg px-4 pb-6 pt-3 bg-white/95 backdrop-blur-sm border-t border-slate-100">
           <button onClick={handleSubmit} disabled={saving}
             className="w-full rounded-2xl font-bold text-white py-4 text-base transition-all active:scale-[0.98] disabled:opacity-60"
             style={saved
