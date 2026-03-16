@@ -1208,10 +1208,17 @@ def solve_schedule(
             if r.nurse_id == nid and r.is_hard
             and 1 <= r.day <= num_days
         )
-        # H11 mandated OFFs per week
-        required = 2 if nurses[ni].is_4day_week else 1
+        # H10 FWO 주 일수 추가 — 주휴일은 ALL_OFF에 포함되므로 반드시 계산
+        # (병가 span 내 FWO는 병가로 처리되어 이미 hard_off에 포함됨)
         span = nurse_병가_span[ni]
         nurse_fwo = nurses[ni].fixed_weekly_off
+        if nurse_fwo is not None:
+            for di in range(num_days):
+                if weekday_of(di) == nurse_fwo:
+                    if not (span and span[0] <= di <= span[1]):
+                        hard_off += 1  # 주휴일 (주 shift = ALL_OFF)
+        # H11 mandated OFFs per week
+        required = 2 if nurses[ni].is_4day_week else 1
         for w in range(0, num_days, 7):
             w_end = min(w + 7, num_days)
             if w_end - w < 4:
