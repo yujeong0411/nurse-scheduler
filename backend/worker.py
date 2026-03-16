@@ -144,6 +144,19 @@ def _convert_requests(raw_requests: list[dict], nurses: list[dict]) -> list[dict
     return result
 
 
+def _parse_holidays(val) -> list[int]:
+    """DB에서 public_holidays가 '[]' 같은 문자열로 올 때 파싱"""
+    import json as _json
+    if isinstance(val, str):
+        try:
+            val = _json.loads(val)
+        except Exception:
+            return []
+    if not val:
+        return []
+    return [int(x) for x in val]
+
+
 def _convert_rules(raw: dict) -> dict:
     """DB rules 행 → engine Rules.from_dict 형식 (snake_case 통일)"""
     return {
@@ -163,5 +176,5 @@ def _convert_rules(raw: dict) -> dict:
         "menstrual_leave":      raw.get("menstrual_leave", True),
         "sleep_N_monthly":      raw.get("sleep_n_monthly", 7),
         "sleep_N_bimonthly":    raw.get("sleep_n_bimonthly", 11),
-        "public_holidays":      raw.get("public_holidays", []),
+        "public_holidays":      _parse_holidays(raw.get("public_holidays", [])),
     }

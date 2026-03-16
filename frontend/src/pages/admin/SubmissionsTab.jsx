@@ -6,6 +6,21 @@ import NameFilter from '../../components/NameFilter'
 
 const WD_KR = ['월', '화', '수', '목', '금', '토', '일']
 
+function buildRequestMap(items) {
+  const map = {}
+  // OR 신청은 같은 day에 여러 row → "/" 로 합쳐서 표시
+  items.forEach(item => {
+    if (!map[item.nurse_id]) map[item.nurse_id] = {}
+    const existing = map[item.nurse_id][item.day]
+    if (existing && item.is_or) {
+      existing.code = existing.code + '/' + item.code
+    } else {
+      map[item.nurse_id][item.day] = { code: item.code, note: item.note || '' }
+    }
+  })
+  return map
+}
+
 function NurseInfoBadges({ nurse }) {
   if (!nurse) return null
   const tags = []
@@ -59,11 +74,7 @@ export default function SubmissionsTab({ period }) {
       rulesApi.get(),
     ]).then(([sRes, aRes, nRes, rRes]) => {
       setStatus(sRes.data)
-      const map = {}
-      aRes.data.forEach(item => {
-        if (!map[item.nurse_id]) map[item.nurse_id] = {}
-        map[item.nurse_id][item.day] = { code: item.code, note: item.note || '' }
-      })
+      const map = buildRequestMap(aRes.data)
       setAllRequests(map)
       allRequestsRef.current = map
       const fMap = {}, nMap = {}
@@ -116,11 +127,7 @@ export default function SubmissionsTab({ period }) {
         requestsApi.getAll(period.period_id),
       ])
       setStatus(sRes.data)
-      const map = {}
-      aRes.data.forEach(item => {
-        if (!map[item.nurse_id]) map[item.nurse_id] = {}
-        map[item.nurse_id][item.day] = { code: item.code, note: item.note || '' }
-      })
+      const map = buildRequestMap(aRes.data)
       allRequestsRef.current = map
       setAllRequests(map)
     } catch (err) {

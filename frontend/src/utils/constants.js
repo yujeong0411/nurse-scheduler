@@ -19,7 +19,7 @@ export const DEFAULT_RULES = {
 export const SHIFT_GROUPS = [
   { label: "근무", color: "#2563EB", shifts: ["D", "D9", "D1", "중2", "중1", "E", "N"] },
   { label: "휴무", color: "#D97706", shifts: ["OFF", "POFF", "법휴", "수면", "생휴", "휴가", "병가", "특휴", "공가", "경가"] },
-  { label: "기타", color: "#6B7280", shifts: ["보수", "필수", "번표", "D제외", "E제외", "N제외"] },
+  { label: "기타", color: "#6B7280", shifts: ["보수", "필수", "번표", "D 제외", "E 제외", "N 제외"] },
 ];
 
 // 공통 팔레트
@@ -52,9 +52,9 @@ export const COLORS = {
   "필수": GRAY,
   "번표": GRAY,
   // 제외
-  "D제외": EXCL,
-  "E제외": EXCL,
-  "N제외": EXCL,
+  "D 제외": EXCL,
+  "E 제외": EXCL,
+  "N 제외": EXCL,
 };
 
 export function sc(s) {

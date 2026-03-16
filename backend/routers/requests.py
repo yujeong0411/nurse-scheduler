@@ -346,6 +346,11 @@ def import_requests_excel(
             "병": "병가", "공": "공가", "경": "경가", "생": "생휴",
             "법": "법휴", "오프": "OFF", "주휴": "주",
         }
+        _VALID_CODES = {
+            "D", "E", "N", "중2", "D9", "D1", "중1",
+            "OFF", "POFF", "주", "법휴", "수면", "생휴", "휴가", "병가",
+            "특휴", "공가", "경가", "보수", "필수", "번표",
+        }
 
         def _normalize(c: str) -> str:
             if "수면" in c:
@@ -353,7 +358,10 @@ def import_requests_excel(
             for s in ["D", "E", "N"]:
                 if c.replace(" ", "") == f"{s}제외":
                     return f"{s} 제외"
-            return _CODE_MAP.get(c.upper(), _CODE_MAP.get(c, c))
+            upper = c.upper()
+            if upper in _VALID_CODES:
+                return upper
+            return _CODE_MAP.get(upper, _CODE_MAP.get(c, c))
 
         if not header_row or not day_cols:
             wb.close()
