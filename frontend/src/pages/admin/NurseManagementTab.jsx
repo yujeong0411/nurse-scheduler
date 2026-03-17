@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { nursesApi, authApi } from '../../api/client'
 
 const WD_OPTS = ['월', '화', '수', '목', '금', '토', '일']
@@ -112,6 +112,9 @@ export default function NurseManagementTab() {
   const [pinReset, setPinReset] = useState({})
   const [applying, setApplying] = useState(false)
   const [importing, setImporting] = useState(false)
+  const [selected, setSelected] = useState(new Set())
+  const [deleting, setDeleting] = useState(false)
+  const lastClickedIdx = useRef(null)
 
   const load = () => {
     nursesApi.list().then(res => setNurses(res.data)).catch(() => {}).finally(() => setLoading(false))
@@ -132,6 +135,47 @@ export default function NurseManagementTab() {
     if (!window.confirm(`${nurse.name}을(를) 삭제하시겠습니까?`)) return
     try { await nursesApi.remove(nurse.id); showMsg('삭제되었습니다'); load() }
     catch (e) { showMsg(e.response?.data?.detail || '삭제 실패', false) }
+  }
+
+  const toggleSelect = (id, shiftKey) => {
+    const idx = nurses.findIndex(n => n.id === id)
+    if (shiftKey && lastClickedIdx.current !== null) {
+      const from = Math.min(lastClickedIdx.current, idx)
+      const to = Math.max(lastClickedIdx.current, idx)
+      const rangeIds = nurses.slice(from, to + 1).map(n => n.id)
+      setSelected(prev => {
+        const next = new Set(prev)
+        rangeIds.forEach(rid => next.add(rid))
+        return next
+      })
+    } else {
+      setSelected(prev => {
+        const next = new Set(prev)
+        next.has(id) ? next.delete(id) : next.add(id)
+        return next
+      })
+    }
+    lastClickedIdx.current = idx
+  }
+
+  const toggleSelectAll = () => {
+    setSelected(selected.size === nurses.length ? new Set() : new Set(nurses.map(n => n.id)))
+  }
+
+  const handleBulkDelete = async () => {
+    const names = nurses.filter(n => selected.has(n.id)).map(n => n.name).join(', ')
+    if (!window.confirm(`${names}\n\n총 ${selected.size}명을 삭제하시겠습니까?`)) return
+    setDeleting(true)
+    let failCount = 0
+    const count = selected.size
+    for (const id of selected) {
+      try { await nursesApi.remove(id) }
+      catch { failCount++ }
+    }
+    setSelected(new Set())
+    setDeleting(false)
+    showMsg(failCount > 0 ? `${count - failCount}명 삭제, ${failCount}명 실패` : `${count}명 삭제되었습니다`)
+    load()
   }
 
   const handlePinReset = async (nurse) => {
@@ -287,56 +331,79 @@ export default function NurseManagementTab() {
             <p className="text-sm">등록된 간호사가 없습니다</p>
           </div>
         ) : (
-          <ul className="divide-y divide-slate-100">
-            {nurses.map(n => (
-              <li key={n.id}>
-                {editing?.id === n.id ? (
-                  <div className="p-3">
-                    <NurseForm initial={n} onSave={handleSave} onCancel={() => setEditing(null)} />
-                  </div>
-                ) : (
-                  <div className="flex items-center px-4 py-3.5">
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <span className="font-semibold text-slate-900 text-sm lg:text-base">{n.name}</span>
-                        {n.grade && (
-                          <span className="badge bg-blue-50 text-blue-700">{n.grade}</span>
+          <>
+            {/* 선택삭제 툴바 */}
+            {selected.size > 0 && (
+              <div className="flex items-center justify-between px-4 py-2.5 border-b border-red-100 bg-red-50">
+                <span className="text-xs font-medium text-red-600">{selected.size}명 선택됨</span>
+                <div className="flex gap-2">
+                  <button onClick={() => setSelected(new Set())} className="text-xs px-3 py-1.5 bg-white border border-slate-200 text-slate-500 rounded-lg font-medium hover:bg-slate-50 transition-colors">
+                    선택 해제
+                  </button>
+                  <button
+                    onClick={handleBulkDelete}
+                    disabled={deleting}
+                    className="text-xs px-3 py-1.5 bg-red-500 text-white rounded-lg font-semibold hover:bg-red-600 disabled:opacity-50 transition-colors">
+                    {deleting ? '삭제 중...' : `선택 삭제 (${selected.size})`}
+                  </button>
+                </div>
+              </div>
+            )}
+            <ul className="divide-y divide-slate-100">
+              {nurses.map(n => (
+                <li key={n.id}>
+                  {editing?.id === n.id ? (
+                    <div className="p-3">
+                      <NurseForm initial={n} onSave={handleSave} onCancel={() => setEditing(null)} />
+                    </div>
+                  ) : (
+                    <div
+                      onClick={(e) => toggleSelect(n.id, e.shiftKey)}
+                      className={`flex items-center px-4 py-3.5 cursor-pointer transition-colors select-none ${
+                        selected.has(n.id) ? 'bg-red-50' : 'hover:bg-slate-50'
+                      }`}>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="font-semibold text-slate-900 text-sm lg:text-base">{n.name}</span>
+                          {n.grade && (
+                            <span className="badge bg-blue-50 text-blue-700">{n.grade}</span>
+                          )}
+                          {n.role && (
+                            <span className="badge bg-slate-100 text-slate-600">{n.role}</span>
+                          )}
+                          {n.is_4day_week && <span className="badge bg-amber-50 text-amber-700">주4일</span>}
+                          {n.is_pregnant && <span className="badge bg-pink-50 text-pink-700">임산부</span>}
+                          {n.is_male && <span className="badge bg-sky-50 text-sky-700">남성</span>}
+                        </div>
+                        {n.vacation_days > 0 && (
+                          <p className="text-xs lg:text-sm text-slate-400 mt-0.5">휴가 {n.vacation_days}일 잔여</p>
                         )}
-                        {n.role && (
-                          <span className="badge bg-slate-100 text-slate-600">{n.role}</span>
-                        )}
-                        {n.is_4day_week && <span className="badge bg-amber-50 text-amber-700">주4일</span>}
-                        {n.is_pregnant && <span className="badge bg-pink-50 text-pink-700">임산부</span>}
-                        {n.is_male && <span className="badge bg-sky-50 text-sky-700">남성</span>}
                       </div>
-                      {n.vacation_days > 0 && (
-                        <p className="text-xs lg:text-sm text-slate-400 mt-0.5">휴가 {n.vacation_days}일 잔여</p>
-                      )}
+                      <div className="flex gap-1 ml-3 flex-shrink-0" onClick={e => e.stopPropagation()}>
+                        <button
+                          onClick={() => handlePinReset(n)}
+                          className={`text-xs lg:text-sm px-2.5 py-1.5 rounded-lg font-medium transition-colors ${
+                            pinReset[n.id] ? 'bg-green-50 text-green-600' : 'bg-slate-100 text-slate-500 hover:bg-slate-200'
+                          }`}>
+                          {pinReset[n.id] ? '✓ PIN' : 'PIN↺'}
+                        </button>
+                        <button
+                          onClick={() => setEditing(n)}
+                          className="text-xs lg:text-sm px-2.5 py-1.5 bg-blue-50 text-blue-700 rounded-lg font-medium hover:bg-blue-100 transition-colors">
+                          수정
+                        </button>
+                        <button
+                          onClick={() => handleDelete(n)}
+                          className="text-xs lg:text-sm px-2.5 py-1.5 bg-red-50 text-red-600 rounded-lg font-medium hover:bg-red-100 transition-colors">
+                          삭제
+                        </button>
+                      </div>
                     </div>
-                    <div className="flex gap-1 ml-3 flex-shrink-0">
-                      <button
-                        onClick={() => handlePinReset(n)}
-                        className={`text-xs lg:text-sm px-2.5 py-1.5 rounded-lg font-medium transition-colors ${
-                          pinReset[n.id] ? 'bg-green-50 text-green-600' : 'bg-slate-100 text-slate-500 hover:bg-slate-200'
-                        }`}>
-                        {pinReset[n.id] ? '✓ PIN' : 'PIN↺'}
-                      </button>
-                      <button
-                        onClick={() => setEditing(n)}
-                        className="text-xs lg:text-sm px-2.5 py-1.5 bg-blue-50 text-blue-700 rounded-lg font-medium hover:bg-blue-100 transition-colors">
-                        수정
-                      </button>
-                      <button
-                        onClick={() => handleDelete(n)}
-                        className="text-xs lg:text-sm px-2.5 py-1.5 bg-red-50 text-red-600 rounded-lg font-medium hover:bg-red-100 transition-colors">
-                        삭제
-                      </button>
-                    </div>
-                  </div>
-                )}
-              </li>
-            ))}
-          </ul>
+                  )}
+                </li>
+              ))}
+            </ul>
+          </>
         )}
       </div>
 
