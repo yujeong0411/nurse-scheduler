@@ -202,20 +202,9 @@ export default function SubmissionsTab({ period }) {
     } finally { setSaving(null) }
   }, [activePick])
 
-  if (loading) return (
-    <div className="flex items-center justify-center py-20 text-slate-400 gap-2 text-sm">
-      <div className="w-4 h-4 border-2 border-slate-200 border-t-slate-400 rounded-full animate-spin" />
-      불러오는 중...
-    </div>
-  )
-
-  if (!period?.start_date) return (
-    <div className="text-center py-16 text-slate-400 text-sm">시작일을 먼저 설정해주세요.</div>
-  )
-
-  const startDate = period.start_date
+  const startDate = period?.start_date || null
   const submitted = status.filter(s => s.submitted_at)
-  const endStr = fmtDate(new Date(new Date(startDate).getTime() + 27 * 86400000))
+  const endStr = startDate ? fmtDate(new Date(new Date(startDate).getTime() + 27 * 86400000)) : ''
   const days = Array.from({ length: NUM_DAYS }, (_, i) => i + 1)
   const pct = status.length > 0 ? Math.round(submitted.length / status.length * 100) : 0
   const allNames = status.map(s => s.name)
@@ -241,9 +230,9 @@ export default function SubmissionsTab({ period }) {
   return (
     <div className="flex flex-col flex-1 min-h-0">
       {/* 상단 바 */}
-      <div className="bg-white border-b border-slate-100 px-4 py-3 flex items-center gap-4 flex-shrink-0">
+      <div id="admin-submissions-toolbar" className="bg-white border-b border-slate-100 px-4 py-3 flex items-center gap-4 flex-shrink-0">
         <div className="flex-1 min-w-0">
-          <p className="font-bold text-slate-800 text-sm">{fmtDate(startDate)} ~ {endStr}</p>
+          {startDate && <p className="font-bold text-slate-800 text-sm">{fmtDate(startDate)} ~ {endStr}</p>}
           <div className="flex items-center gap-2 mt-1">
             <div className="flex-1 bg-slate-100 rounded-full h-1.5 max-w-32">
               <div className="bg-blue-500 h-1.5 rounded-full transition-all" style={{ width: `${pct}%` }} />
@@ -272,7 +261,15 @@ export default function SubmissionsTab({ period }) {
       </div>
 
       {/* 그리드 */}
-      <div className="flex-1 min-h-0" style={{ overflowY: 'auto', overflowX: 'scroll' }}>
+      {loading ? (
+        <div className="flex items-center justify-center py-20 text-slate-400 gap-2 text-sm">
+          <div className="w-4 h-4 border-2 border-slate-200 border-t-slate-400 rounded-full animate-spin" />
+          불러오는 중...
+        </div>
+      ) : !startDate ? (
+        <div className="text-center py-16 text-slate-400 text-sm">시작일을 먼저 설정해주세요.</div>
+      ) : (
+      <div id="admin-submissions-grid" className="flex-1 min-h-0" style={{ overflowY: 'auto', overflowX: 'scroll' }}>
         <table className="text-xs border-collapse w-full" style={{ minWidth: 'max-content' }}>
           <thead>
             <tr>
@@ -362,6 +359,7 @@ export default function SubmissionsTab({ period }) {
           </tbody>
         </table>
       </div>
+      )}
 
       {/* 날짜 필터 피커 */}
       {datePicker && (() => {

@@ -315,13 +315,6 @@ export default function ScheduleResultTab({ period }) {
     finally { setExporting(false) }
   }
 
-  if (loading) return (
-    <div className="flex items-center justify-center py-20 text-slate-400 gap-2 text-sm">
-      <div className="w-4 h-4 border-2 border-slate-200 border-t-slate-400 rounded-full animate-spin" />
-      불러오는 중...
-    </div>
-  )
-
   const startDate = settings?.start_date || null
   const endStr = startDate ? fmtDate(new Date(new Date(startDate).getTime() + 27 * 86400000)) : ''
   const days = Array.from({ length: NUM_DAYS }, (_, i) => i + 1)
@@ -377,7 +370,7 @@ export default function ScheduleResultTab({ period }) {
                 </svg>
                 평가
               </button>
-              <button onClick={handleExport} disabled={exporting}
+              <button id="admin-schedule-export" onClick={handleExport} disabled={exporting}
                 className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold rounded-lg transition-colors disabled:opacity-50">
                 <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                   <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
@@ -387,7 +380,7 @@ export default function ScheduleResultTab({ period }) {
               </button>
             </>
           )}
-          <button onClick={handleGenerate} disabled={generating || !startDate}
+          <button id="admin-schedule-generate" onClick={handleGenerate} disabled={generating || !startDate}
             className="flex items-center gap-1.5 px-3 py-1.5 text-white text-xs font-semibold rounded-lg transition-colors disabled:opacity-50" style={{ background: '#2A3A7A' }}>
             {generating ? (
               <div className="w-3.5 h-3.5 border-2 border-white/40 border-t-white rounded-full animate-spin" />
@@ -401,8 +394,16 @@ export default function ScheduleResultTab({ period }) {
         </div>
       </div>
 
+      {/* 로딩 */}
+      {loading && (
+        <div className="flex items-center justify-center py-20 text-slate-400 gap-2 text-sm">
+          <div className="w-4 h-4 border-2 border-slate-200 border-t-slate-400 rounded-full animate-spin" />
+          불러오는 중...
+        </div>
+      )}
+
       {/* 솔버 진행 */}
-      {generating && (
+      {!loading && generating && (
         <div className="bg-blue-50 border-b border-blue-100 px-4 py-2.5 flex items-center gap-3 flex-shrink-0">
           <div className="w-3.5 h-3.5 border-2 border-blue-300 border-t-blue-600 rounded-full animate-spin flex-shrink-0" />
           <div className="flex-1">
@@ -418,7 +419,7 @@ export default function ScheduleResultTab({ period }) {
       )}
 
       {/* 메시지 */}
-      {msg && (
+      {!loading && msg && (
         <div className={`px-4 py-2.5 flex items-start gap-3 flex-shrink-0 ${msg.ok ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-700 border-b border-red-200'}`}>
           <p className="text-xs font-semibold flex-1 whitespace-pre-wrap">{msg.text}</p>
           {!msg.ok && (
@@ -429,7 +430,7 @@ export default function ScheduleResultTab({ period }) {
       )}
 
       {/* 평가 결과 */}
-      {evalData && (() => {
+      {!loading && evalData && (() => {
         const rf = evalData.request_fulfilled || {}
         const rate = rf.rate ?? 0
         const fulfilled = rf.fulfilled ?? 0
@@ -466,7 +467,7 @@ export default function ScheduleResultTab({ period }) {
       })()}
 
       {/* 근무표 그리드 */}
-      {scheduleData && nurses.length > 0 ? (
+      {!loading && scheduleData && nurses.length > 0 ? (
         <div className="flex-1 min-h-0" style={{ overflowY: 'auto', overflowX: 'scroll' }}>
           <table className="text-xs border-collapse w-full" style={{ minWidth: 'max-content' }}>
             <thead>
@@ -631,7 +632,7 @@ export default function ScheduleResultTab({ period }) {
             )}
           </table>
         </div>
-      ) : !generating && (
+      ) : !loading && !generating && (
         <div className="flex flex-col items-center justify-center flex-1 text-slate-400 gap-3">
           <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
             <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>

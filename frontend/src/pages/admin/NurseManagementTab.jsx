@@ -224,25 +224,18 @@ export default function NurseManagementTab() {
     e.target.value = ''
   }
 
-  if (loading) return (
-    <div className="flex items-center justify-center py-20 text-slate-400 gap-2 text-sm">
-      <div className="w-4 h-4 border-2 border-slate-200 border-t-slate-400 rounded-full animate-spin" />
-      불러오는 중...
-    </div>
-  )
-
   return (
     <div className="flex-1 min-h-0 overflow-y-auto">
     <div className="p-2 sm:p-4 md:p-6 space-y-4 w-full max-w-5xl mx-auto">
       {/* 간호사 관리 버튼 */}
       <div className="flex gap-2">
-        <button onClick={() => setEditing('new')} className="btn-primary flex-1 text-sm lg:text-base flex items-center justify-center gap-2">
+        <button id="admin-nurses-add-btn" onClick={() => setEditing('new')} className="btn-primary flex-1 text-sm lg:text-base flex items-center justify-center gap-2">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
             <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
           </svg>
           간호사 추가
         </button>
-        <label className={`btn-secondary flex-1 text-sm lg:text-base flex items-center justify-center gap-2 ${importing ? 'opacity-60 cursor-not-allowed' : 'cursor-pointer'}`}>
+        <label id="admin-nurses-excel" className={`btn-secondary flex-1 text-sm lg:text-base flex items-center justify-center gap-2 ${importing ? 'opacity-60 cursor-not-allowed' : 'cursor-pointer'}`}>
           {importing ? (
             <div className="w-3.5 h-3.5 border-2 border-slate-300 border-t-slate-600 rounded-full animate-spin" />
           ) : (
@@ -257,7 +250,7 @@ export default function NurseManagementTab() {
       </div>
 
       {/* 이전 근무 반영 */}
-      <div className="card overflow-hidden">
+      <div id="admin-nurses-prev" className="card overflow-hidden">
         <div className="px-4 py-2.5 bg-red-50 border-b border-red-200">
           <p className="text-xs lg:text-sm font-semibold text-slate-700">이전 근무 반영 (전월N · 수면이월 · 생휴 · 휴가잔여)</p>
           <div className="flex items-center gap-1 mt-0.5">
@@ -313,13 +306,20 @@ export default function NurseManagementTab() {
         </div>
       )}
 
+      {loading ? (
+        <div className="flex items-center justify-center py-20 text-slate-400 gap-2 text-sm">
+          <div className="w-4 h-4 border-2 border-slate-200 border-t-slate-400 rounded-full animate-spin" />
+          불러오는 중...
+        </div>
+      ) : (<>
+
       {/* 새 간호사 폼 */}
       {editing === 'new' && (
         <NurseForm onSave={handleSave} onCancel={() => setEditing(null)} />
       )}
 
       {/* 간호사 목록 */}
-      <div className="card overflow-hidden">
+      <div id="admin-nurses-list" className="card overflow-hidden">
         {nurses.length === 0 ? (
           <div className="text-center py-16 text-slate-400">
             <svg className="mx-auto mb-3 text-slate-300" width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
@@ -408,6 +408,7 @@ export default function NurseManagementTab() {
       </div>
 
       <p className="text-center text-xs text-slate-400">총 {nurses.length}명</p>
+      </>)}
     </div>
     </div>
   )

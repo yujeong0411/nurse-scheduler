@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
+import Joyride, { STATUS, EVENTS, ACTIONS } from 'react-joyride'
 import useAuthStore from '../../store/auth'
 import { settingsApi, authApi } from '../../api/client'
 import SettingsTab from './SettingsTab'
@@ -7,6 +8,110 @@ import NurseManagementTab from './NurseManagementTab'
 import SubmissionsTab from './SubmissionsTab'
 import ScheduleResultTab from './ScheduleResultTab'
 import { fmtDate } from '../../utils/constants'
+
+function TourTooltip({ continuous, index, step, size, backProps, closeProps, primaryProps, skipProps, isLastStep }) {
+  return (
+    <div style={{
+      background: '#fff', borderRadius: 20,
+      boxShadow: '0 8px 40px rgba(0,0,0,0.18)', width: 300,
+      overflow: 'hidden', fontFamily: "'Inter', '맑은 고딕', 'Apple SD Gothic Neo', sans-serif",
+    }}>
+      <div style={{ height: 4, background: 'linear-gradient(90deg, #2A3A7A, #4B6CB7)' }} />
+      <div style={{ padding: '20px 20px 16px' }}>
+        <div style={{ display: 'flex', gap: 5, marginBottom: 12 }}>
+          {Array.from({ length: size }).map((_, i) => (
+            <div key={i} style={{
+              height: 3, flex: 1, borderRadius: 2,
+              background: i <= index ? '#2A3A7A' : '#E2E8F0', transition: 'background 0.3s',
+            }} />
+          ))}
+        </div>
+        {step.title && <p style={{ margin: '0 0 8px', fontSize: 15, fontWeight: 700, color: '#0F172A' }}>{step.title}</p>}
+        <p style={{ margin: 0, fontSize: 13.5, color: '#475569', lineHeight: 1.6 }}>{step.content}</p>
+      </div>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 16px 16px' }}>
+        <button {...skipProps} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 12, color: '#94A3B8', fontFamily: 'inherit', padding: '6px 4px' }}>
+          건너뛰기
+        </button>
+        <div style={{ display: 'flex', gap: 8 }}>
+          {index > 0 && (
+            <button {...backProps} style={{ background: '#F1F5F9', border: 'none', borderRadius: 10, cursor: 'pointer', fontSize: 13, fontWeight: 600, color: '#475569', padding: '8px 16px', fontFamily: 'inherit' }}>
+              이전
+            </button>
+          )}
+          <button {...(isLastStep ? closeProps : primaryProps)} style={{ background: '#2A3A7A', border: 'none', borderRadius: 10, cursor: 'pointer', fontSize: 13, fontWeight: 700, color: '#fff', padding: '8px 18px', fontFamily: 'inherit' }}>
+            {isLastStep ? '완료' : '다음 →'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+const TOUR_STEPS = [
+  {
+    target: 'body', placement: 'center', disableBeacon: true,
+    title: '관리자 가이드',
+    content: '근무표 생성을 위한 4단계 워크플로우를 안내합니다. 설정 → 간호사 → 신청현황 → 근무표 순서로 진행하세요.',
+  },
+  // ── 설정 탭 ──
+  {
+    target: '#admin-period-btn', placement: 'bottom', disableBeacon: true,
+    title: '기간 선택',
+    content: '편집할 근무 기간을 선택합니다. 눈 버튼으로 간호사에게 신청 기간을 공개하거나 숨길 수 있어요.',
+  },
+  {
+    target: '#admin-settings-period', placement: 'bottom', disableBeacon: true,
+    title: '① 일정 설정',
+    content: '근무표 시작일과 신청 마감일을 설정합니다. 마감일이 지나면 간호사 신청이 자동으로 잠깁니다. 설정 후 반드시 "일정 저장"을 눌러야 적용됩니다.',
+  },
+  {
+    target: '#admin-settings-rules', placement: 'bottom', disableBeacon: true,
+    title: '① 근무 규칙',
+    content: '일별 최소 인원, 연속 근무 제한, 야간 횟수 등 솔버 제약 조건을 설정합니다.',
+  },
+  {
+    target: '#admin-settings-holidays', placement: 'top', disableBeacon: true,
+    title: '① 법정 공휴일',
+    content: '"자동 감지" 버튼으로 해당 기간의 법정 공휴일을 자동으로 불러옵니다. 확인 후 "규칙 저장"을 눌러야 최종 저장됩니다.',
+  },
+  // ── 간호사 탭 ──
+  {
+    target: '#admin-nurses-add-btn', placement: 'bottom', disableBeacon: true,
+    title: '② 간호사 추가',
+    content: '이름·직급·역할·고정주휴·휴가잔여를 입력해 간호사를 등록합니다.',
+  },
+  {
+    target: '#admin-nurses-excel', placement: 'bottom', disableBeacon: true,
+    title: '② 규칙 엑셀 불러오기',
+    content: '미리 작성된 엑셀 규칙 파일에서 간호사 목록을 한 번에 가져올 수 있습니다.',
+  },
+  {
+    target: '#admin-nurses-prev', placement: 'bottom', disableBeacon: true,
+    title: '② 이전 근무 반영',
+    content: '새 달 근무표 생성 전 반드시 실행하세요. 전월 N 횟수·수면이월·생휴·휴가잔여를 자동 업데이트합니다. DB 자동 반영 또는 지난 달 엑셀 파일로 반영할 수 있어요.',
+  },
+  // ── 신청현황 탭 ──
+  {
+    target: '#admin-submissions-toolbar', placement: 'bottom', disableBeacon: true,
+    title: '③ 신청현황',
+    content: '간호사들의 근무 신청을 한눈에 확인합니다. 셀 클릭으로 직접 수정하거나, 날짜 헤더 클릭으로 필터링, 엑셀로 내보내기·불러오기가 가능합니다.',
+  },
+  // ── 근무표 탭 ──
+  {
+    target: '#admin-schedule-generate', placement: 'bottom', disableBeacon: true,
+    title: '④ 근무표 생성',
+    content: 'OR-Tools가 모든 규칙과 신청을 반영해 최적 근무표를 자동 생성합니다(최대 180초). 생성 후 셀 클릭으로 수동 편집하고, 엑셀 버튼으로 저장하세요.',
+  },
+]
+
+const TAB_FOR_STEP = [
+  null,
+  'settings', 'settings', 'settings', 'settings',
+  'nurses', 'nurses', 'nurses',
+  'submissions',
+  'schedule',
+]
 
 const TABS = [
   {
@@ -65,6 +170,8 @@ export default function AdminLayout() {
   const [pwForm, setPwForm] = useState({ old_pw: '', new_pw: '', confirm: '' })
   const [pwMsg, setPwMsg] = useState(null)
   const [pwLoading, setPwLoading] = useState(false)
+  const [tourRun, setTourRun] = useState(false)
+  const [tourStep, setTourStep] = useState(0)
   const pickerRef = useRef(null)
 
   const loadPeriods = (selectStartDate = null) => {
@@ -101,7 +208,30 @@ export default function AdminLayout() {
   useEffect(() => {
     loadPeriods()
     settingsApi.get().then(res => setDeptName(res.data.department_name || '')).catch(() => {})
+    if (!localStorage.getItem('admin_tour_done')) {
+      setTimeout(() => setTourRun(true), 600)
+    }
   }, [])
+
+  const handleTourCallback = ({ type, index, action, status }) => {
+    if ([STATUS.FINISHED, STATUS.SKIPPED].includes(status)) {
+      setTourRun(false)
+      localStorage.setItem('admin_tour_done', '1')
+      return
+    }
+    if (type === EVENTS.STEP_AFTER) {
+      const next = index + (action === ACTIONS.PREV ? -1 : 1)
+      const nextTab = TAB_FOR_STEP[next]
+      const currTab = TAB_FOR_STEP[index]
+      if (nextTab) setActiveTab(nextTab)
+      if (nextTab) setActiveTab(nextTab)
+      if (nextTab && nextTab !== currTab) {
+        setTimeout(() => setTourStep(next), 200)
+      } else {
+        setTourStep(next)
+      }
+    }
+  }
 
   // 드롭다운 바깥 클릭 닫기
   useEffect(() => {
@@ -182,6 +312,7 @@ export default function AdminLayout() {
           <div ref={pickerRef} className="relative flex-1 flex justify-center px-4">
             {selPeriod && (
               <button
+                id="admin-period-btn"
                 onClick={() => setShowPeriodPicker(v => !v)}
                 className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg hover:bg-slate-50 border border-slate-200 transition-colors"
               >
@@ -251,6 +382,15 @@ export default function AdminLayout() {
 
           <div className="flex items-center gap-1">
             <button
+              onClick={() => { setTourStep(0); setActiveTab('settings'); setTourRun(true) }}
+              className="w-8 h-8 flex items-center justify-center text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-lg transition-colors"
+              title="사용 가이드">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/>
+                <line x1="12" y1="17" x2="12.01" y2="17"/>
+              </svg>
+            </button>
+            <button
               onClick={() => setShowPwModal(true)}
               className="w-8 h-8 flex items-center justify-center text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-lg transition-colors"
               title="비밀번호 변경">
@@ -279,6 +419,7 @@ export default function AdminLayout() {
             return (
               <button
                 key={tab.id}
+                id={`admin-tab-${tab.id}`}
                 onClick={() => setActiveTab(tab.id)}
                 className="flex-1 flex flex-col items-center gap-1 py-2.5 transition-colors relative"
                 style={{ color: active ? '#2A3A7A' : '#94A3B8' }}
@@ -337,6 +478,19 @@ export default function AdminLayout() {
           </div>
         </div>
       )}
+
+      <Joyride
+        steps={TOUR_STEPS}
+        run={tourRun}
+        stepIndex={tourStep}
+        continuous
+        scrollToFirstStep
+        spotlightClicks={false}
+        disableOverlayClose
+        tooltipComponent={TourTooltip}
+        styles={{ options: { zIndex: 1100, spotlightShadow: '0 0 0 9999px rgba(0,0,0,0.55)' } }}
+        callback={handleTourCallback}
+      />
 
       {/* 탭 콘텐츠 */}
       <main className="flex-1 flex flex-col min-h-0">

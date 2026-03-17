@@ -2,9 +2,9 @@ import { useState, useEffect } from 'react'
 import { settingsApi, rulesApi, holidaysApi } from '../../api/client'
 import { dlPassed, fmtDate } from '../../utils/constants'
 
-function Section({ title, icon, children }) {
+function Section({ title, icon, children, id }) {
   return (
-    <div className="card overflow-hidden">
+    <div id={id} className="card overflow-hidden">
       <div className="px-4 py-3 border-b border-slate-100 bg-slate-50 flex items-center gap-2">
         {icon}
         <span className="text-sm lg:text-base font-semibold text-slate-700">{title}</span>
@@ -200,7 +200,7 @@ export default function SettingsTab({ period, onPeriodSaved }) {
     <div className="p-2 sm:p-4 md:p-6 space-y-4 w-full max-w-5xl mx-auto">
 
       {/* 일정 카드 */}
-      <div className="card overflow-hidden">
+      <div id="admin-settings-period" className="card overflow-hidden">
         <div className="px-4 py-3 border-b border-slate-100 bg-slate-50 flex items-center gap-2">
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#64748B" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <rect x="3" y="4" width="18" height="18" rx="2" ry="2"/>
@@ -245,7 +245,7 @@ export default function SettingsTab({ period, onPeriodSaved }) {
 
       {rules && (<>
         {/* 일일 최소 인원 */}
-        <Section title="일일 최소 인원" icon={
+        <Section id="admin-settings-rules" title="일일 최소 인원" icon={
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#64748B" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/>
             <path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>
@@ -302,7 +302,7 @@ export default function SettingsTab({ period, onPeriodSaved }) {
         </Section>
 
         {/* 법정공휴일 */}
-        <div className="card overflow-hidden">
+        <div id="admin-settings-holidays" className="card overflow-hidden">
           <div className="px-4 py-3 border-b border-slate-100 bg-slate-50 flex items-center gap-2">
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#64748B" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/>
@@ -335,7 +335,7 @@ export default function SettingsTab({ period, onPeriodSaved }) {
             {rulesMsg.ok ? '✓ ' : '✗ '}{rulesMsg.text}
           </div>
         )}
-        <button onClick={handleRulesSave} disabled={savingRules} className="btn-primary w-full text-sm">
+        <button id="admin-settings-rules-save" onClick={handleRulesSave} disabled={savingRules} className="btn-primary w-full text-sm">
           {savingRules ? '저장 중...' : '규칙 저장'}
         </button>
       </>)}
