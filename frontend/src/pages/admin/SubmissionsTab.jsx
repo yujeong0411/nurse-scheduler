@@ -56,6 +56,7 @@ export default function SubmissionsTab({ period }) {
   const [blockPopup, setBlockPopup] = useState(null)  // { code, violations[] }
   const [saving, setSaving] = useState(null)
   const [selectedNames, setSelectedNames] = useState(null)
+  const [highlightedId, setHighlightedId] = useState(null)
   const [dateFilter, setDateFilter] = useState(null)   // null | { day, codes: Set }
   const [datePicker, setDatePicker] = useState(null)   // null | { day, x, y }
   const pickerRef = useRef(null)
@@ -161,6 +162,7 @@ export default function SubmissionsTab({ period }) {
 
   const handleCellClick = (e, nurseId, day) => {
     e.stopPropagation()
+    setHighlightedId(nurseId)
     if (activePick?.nurseId === nurseId && activePick?.day === day) { setActivePick(null); return }
     const rect = e.currentTarget.getBoundingClientRect()
     setActivePick({ nurseId, day, x: rect.left, y: rect.bottom })
@@ -308,9 +310,11 @@ export default function SubmissionsTab({ period }) {
               const isSubmitted = !!st.submitted_at
               const isSavingThis = saving === st.nurse_id
               return (
-                <tr key={st.nurse_id} className="group hover:bg-blue-100 transition-colors">
-                  <td className="sticky left-0 z-10 px-3 py-1.5 font-medium whitespace-nowrap border-b border-slate-200 bg-white group-hover:bg-blue-50 transition-colors"
-                    style={{ boxShadow: '2px 0 6px rgba(0,0,0,0.06)' }}>
+                <tr key={st.nurse_id} className={`group transition-colors ${highlightedId === st.nurse_id ? 'bg-blue-100' : 'hover:bg-blue-100'}`}>
+                  <td className={`sticky left-0 z-10 px-3 py-1.5 font-medium whitespace-nowrap border-b border-slate-200 transition-colors cursor-pointer ${highlightedId === st.nurse_id ? 'bg-blue-50' : 'bg-white group-hover:bg-blue-50'}`}
+                    style={{ boxShadow: '2px 0 6px rgba(0,0,0,0.06)' }}
+                    onClick={() => { setActivePick(null); setHighlightedId(id => id === st.nurse_id ? null : st.nurse_id) }}
+                    onMouseDown={e => e.stopPropagation()}>
                     <div className="flex items-center gap-1.5">
                       <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${isSavingThis ? 'bg-amber-400 animate-pulse' : isSubmitted ? 'bg-emerald-400' : 'bg-slate-200'}`} />
                       <span className="text-slate-800">{st.name}</span>

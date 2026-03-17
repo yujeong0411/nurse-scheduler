@@ -150,6 +150,7 @@ export default function ScheduleResultTab({ period }) {
   const [exporting, setExporting] = useState(false)
   const [msg, setMsg] = useState(null)
   const [selectedNames, setSelectedNames] = useState(null)
+  const [highlightedId, setHighlightedId] = useState(null)
   const [dateFilter, setDateFilter] = useState(null)   // null | { day, codes: Set }
   const [datePicker, setDatePicker] = useState(null)   // null | { day, x, y }
   const pollRef = useRef(null)
@@ -523,9 +524,11 @@ export default function ScheduleResultTab({ period }) {
                 const totalWork = dCnt + eCnt + nCnt + 중2Cnt
 
                 return (
-                  <tr key={nurse.id} className="group hover:bg-blue-100 transition-colors">
-                    <td className="sticky left-0 z-10 px-3 py-1.5 font-medium whitespace-nowrap border-b border-slate-200 bg-white group-hover:bg-blue-50 transition-colors text-slate-800"
-                      style={{ boxShadow: '2px 0 6px rgba(0,0,0,0.06)' }}>
+                  <tr key={nurse.id} className={`group transition-colors ${highlightedId === nurse.id ? 'bg-blue-100' : 'hover:bg-blue-100'}`}>
+                    <td className={`sticky left-0 z-10 px-3 py-1.5 font-medium whitespace-nowrap border-b border-slate-200 transition-colors text-slate-800 cursor-pointer ${highlightedId === nurse.id ? 'bg-blue-50' : 'bg-white group-hover:bg-blue-50'}`}
+                      style={{ boxShadow: '2px 0 6px rgba(0,0,0,0.06)' }}
+                      onClick={() => { setEditCell(null); setHighlightedId(id => id === nurse.id ? null : nurse.id) }}
+                      onMouseDown={e => e.stopPropagation()}>
                       {nurse.name}
                     </td>
                     {days.map(d => {
@@ -543,7 +546,7 @@ export default function ScheduleResultTab({ period }) {
                       const baseBg = hasReq ? '#fef9c3' : isSun ? '#fef2f2' : isSat ? '#eff6ff' : '#ffffff'
                       return (
                         <td key={d}
-                          onClick={e => !isWeeklyOff && scheduleId && setEditCell({ nurseId: nurse.id, nurseObj: nurse, day: d, rect: e.currentTarget.getBoundingClientRect() })}
+                          onClick={e => { if (!isWeeklyOff && scheduleId) { setHighlightedId(nurse.id); setEditCell({ nurseId: nurse.id, nurseObj: nurse, day: d, rect: e.currentTarget.getBoundingClientRect() }) } }}
                           className={`text-center border-b border-r border-slate-200 transition-colors ${isWeeklyOff ? 'cursor-default' : 'cursor-pointer'}`}
                           style={{
                             background: isActive ? '#dbeafe' : baseBg,
