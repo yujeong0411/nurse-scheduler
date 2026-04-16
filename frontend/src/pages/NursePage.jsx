@@ -163,7 +163,8 @@ export default function NursePage() {
           const reqRes = await requestsApi.getMine(s.period_id)
           const map = {}, noteMap = {}
           ;(reqRes.data || []).forEach(it => {
-            map[it.day] = it.code
+            if (!map[it.day]) map[it.day] = []
+            map[it.day].push(it.code)
             if (it.note) noteMap[it.day] = it.note
           })
           setShifts(map)
@@ -201,15 +202,15 @@ export default function NursePage() {
     })()
   }, [])
 
-  const setShift = useCallback((day, s, note = '') => {
+  const setShift = useCallback((day, codes, note = '') => {
     setShifts(prev => {
       const next = { ...prev }
-      if (s) next[day] = s; else delete next[day]
+      if (codes && codes.length > 0) next[day] = codes; else delete next[day]
       return next
     })
     setNotes(prev => {
       const next = { ...prev }
-      if (s && note) next[day] = note; else delete next[day]
+      if (codes && codes.length > 0 && note) next[day] = note; else delete next[day]
       return next
     })
     setSaved(false)
@@ -220,9 +221,13 @@ export default function NursePage() {
     if (dlPassed(settings?.deadline)) { showToast('신청 마감이 지났습니다.', false); return }
     setSaving(true)
     try {
-      const items = Object.entries(shifts).map(([day, code]) => ({
-        day: parseInt(day), code, is_or: false, note: notes[+day] || ''
-      }))
+      const items = []
+      for (const [day, codes] of Object.entries(shifts)) {
+        const isOr = codes.length > 1
+        codes.forEach(code => items.push({
+          day: parseInt(day), code, is_or: isOr, note: notes[+day] || ''
+        }))
+      }
       await requestsApi.upsert(periodId, nurseId, items)
       setSaved(true)
       showToast('신청이 저장되었습니다.', true)
@@ -262,11 +267,13 @@ export default function NursePage() {
     ]
   }
 
-  const allV = (startDate && nurseForValidate) ? Object.entries(shifts).reduce((acc, [day, code]) => {
+  const allV = (startDate && nurseForValidate) ? Object.entries(shifts).reduce((acc, [day, codes]) => {
     const ps = { ...shifts }; delete ps[+day]
     const label = mmdd(getDate(startDate, +day))
-    validate(ps, +day, code, nurseForValidate, effectiveRules, startDate)
-      .forEach(v => acc.push(`${label}: ${v}`))
+    codes.forEach(code => {
+      validate(ps, +day, code, nurseForValidate, effectiveRules, startDate)
+        .forEach(v => acc.push(codes.length > 1 ? `${label}(${code}): ${v}` : `${label}: ${v}`))
+    })
     return acc
   }, []) : []
 
@@ -468,10 +475,13 @@ export default function NursePage() {
                 const wd = getWd(startDate, day) // Mon=0..Sun=6
                 const isSat = wd === 5, isSun = wd === 6
                 const isHol = (effectiveRules.public_holidays || []).includes(day)
-                const s = shifts[day] || ''
-                const st = sc(s)
+                const codes = shifts[day] || []
+                const s = codes.join('/')
+                const st = sc(codes[0] || '')
                 const ps = { ...shifts }; delete ps[day]
-                const vs = s && nurseForValidate ? validate(ps, day, s, nurseForValidate, effectiveRules, startDate) : []
+                const vs = codes.length > 0 && nurseForValidate
+                  ? codes.flatMap(code => validate(ps, day, code, nurseForValidate, effectiveRules, startDate))
+                  : []
                 const dateObj = getDate(startDate, day)
                 const fixedWd = (nurseForValidate?.fixed_weekly_off != null && nurseForValidate?.fixed_weekly_off !== '')
                   ? parseInt(nurseForValidate.fixed_weekly_off) : -1
@@ -508,9 +518,9 @@ export default function NursePage() {
                       </span>
                     )}
                     {/* 근무 뱃지 or + 버튼 */}
-                    {s ? (
+                    {codes.length > 0 ? (
                       <span className="mt-1.5 flex-1 w-full flex items-center justify-center rounded-xl font-black"
-                        style={{ fontSize: s.endsWith('제외') ? 11 : 14, background: st.bg, color: st.fg, border: `1.5px solid ${st.border}`, minHeight: 36 }}>
+                        style={{ fontSize: s.length > 5 ? 10 : s.endsWith('제외') ? 11 : 14, background: st.bg, color: st.fg, border: `1.5px solid ${st.border}`, minHeight: 36 }}>
                         {s}
                       </span>
                     ) : (
@@ -572,7 +582,7 @@ export default function NursePage() {
           rules={effectiveRules}
           startDate={startDate}
           notes={notes}
-          onSelect={(s, note) => { setShift(picker.day, s, note); setPicker(null) }}
+          onSelect={(codes, note) => { setShift(picker.day, codes, note); setPicker(null) }}
           onClose={() => setPicker(null)}
         />
       )}

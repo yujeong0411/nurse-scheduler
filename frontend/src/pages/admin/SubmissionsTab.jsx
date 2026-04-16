@@ -8,15 +8,15 @@ const WD_KR = ['월', '화', '수', '목', '금', '토', '일']
 
 function buildRequestMap(items) {
   const map = {}
-  // OR 신청은 같은 day에 여러 row → "/" 로 합쳐서 표시
   items.forEach(item => {
     if (!map[item.nurse_id]) map[item.nurse_id] = {}
-    const existing = map[item.nurse_id][item.day]
-    if (existing && item.is_or) {
-      existing.code = existing.code + '/' + item.code
-    } else {
-      map[item.nurse_id][item.day] = { code: item.code, note: item.note || '' }
+    const day = item.day
+    if (!map[item.nurse_id][day]) {
+      map[item.nurse_id][day] = { codes: [], is_or: false, note: item.note || '' }
     }
+    map[item.nurse_id][day].codes.push(item.code)
+    if (item.is_or) map[item.nurse_id][day].is_or = true
+    if (item.note) map[item.nurse_id][day].note = item.note
   })
   return map
 }
@@ -53,6 +53,7 @@ export default function SubmissionsTab({ period }) {
   const [importing, setImporting] = useState(false)
   const [importMsg, setImportMsg] = useState(null)
   const [activePick, setActivePick] = useState(null)
+  const [pickerSelected, setPickerSelected] = useState([])  // 피커 내 임시 선택
   const [blockPopup, setBlockPopup] = useState(null)  // { code, violations[] }
   const [saving, setSaving] = useState(null)
   const [selectedNames, setSelectedNames] = useState(null)
@@ -87,7 +88,15 @@ export default function SubmissionsTab({ period }) {
       setNursesMap(nMap)
       if (rRes.data) setRules(rRes.data)
     }).catch(() => {}).finally(() => setLoading(false))
+
   }, [period?.period_id])
+
+  const handleRefreshStatus = () => {
+    if (!periodIdRef.current) return
+    requestsApi.getStatus(periodIdRef.current)
+      .then(res => setStatus(res.data))
+      .catch(() => {})
+  }
 
   useEffect(() => {
     if (!activePick) return
@@ -165,17 +174,20 @@ export default function SubmissionsTab({ period }) {
     setHighlightedId(nurseId)
     if (activePick?.nurseId === nurseId && activePick?.day === day) { setActivePick(null); return }
     const rect = e.currentTarget.getBoundingClientRect()
+    const existingCodes = allRequestsRef.current[nurseId]?.[day]?.codes || []
+    setPickerSelected(existingCodes)
+    setBlockPopup(null)
     setActivePick({ nurseId, day, x: rect.left, y: rect.bottom })
   }
 
-  const handlePickCode = useCallback(async (code) => {
+  const handlePickCodes = useCallback(async (codes) => {
     if (!activePick) return
     const { nurseId, day } = activePick
     setActivePick(null)
 
     // ref로 최신 상태 읽기 (stale closure 방지)
     const nurseData = { ...(allRequestsRef.current[nurseId] || {}) }
-    if (code) nurseData[day] = { code, note: nurseData[day]?.note || '' }
+    if (codes.length > 0) nurseData[day] = { codes, is_or: codes.length > 1, note: nurseData[day]?.note || '' }
     else delete nurseData[day]
 
     // UI 즉시 반영
@@ -185,16 +197,14 @@ export default function SubmissionsTab({ period }) {
 
     setSaving(nurseId)
     try {
-      const items = Object.entries(nurseData).map(([d, v]) => ({ day: parseInt(d), code: v.code, is_or: false, note: v.note || '' }))
+      const items = Object.entries(nurseData).flatMap(([d, v]) => {
+        const isOr = v.codes.length > 1
+        return v.codes.map(c => ({ day: parseInt(d), code: c, is_or: isOr, note: v.note || '' }))
+      })
       await requestsApi.upsert(periodIdRef.current, nurseId, items)
     } catch {
-      // 실패 시 DB에서 재로드
       requestsApi.getAll(periodIdRef.current).then(res => {
-        const map = {}
-        res.data.forEach(item => {
-          if (!map[item.nurse_id]) map[item.nurse_id] = {}
-          map[item.nurse_id][item.day] = { code: item.code, note: item.note || '' }
-        })
+        const map = buildRequestMap(res.data)
         allRequestsRef.current = map
         setAllRequests(map)
       }).catch(() => {})
@@ -213,16 +223,16 @@ export default function SubmissionsTab({ period }) {
     : status
   const displayStatus = dateFilter
     ? filteredStatus.filter(s => {
-        const code = allRequests[s.nurse_id]?.[dateFilter.day]?.code || ''
-        return dateFilter.codes.has(code)
+        const codes = allRequests[s.nurse_id]?.[dateFilter.day]?.codes || []
+        return codes.some(c => dateFilter.codes.has(c))
       })
     : filteredStatus
 
   const pickerCodes = datePicker ? (() => {
     const s = new Set()
     status.forEach(st => {
-      const code = allRequestsRef.current[st.nurse_id]?.[datePicker.day]?.code || ''
-      if (code) s.add(code)
+      const codes = allRequestsRef.current[st.nurse_id]?.[datePicker.day]?.codes || []
+      codes.forEach(c => s.add(c))
     })
     return [...s].sort()
   })() : []
@@ -238,6 +248,13 @@ export default function SubmissionsTab({ period }) {
               <div className="bg-blue-500 h-1.5 rounded-full transition-all" style={{ width: `${pct}%` }} />
             </div>
             <span className="text-xs text-slate-500">{submitted.length}/{status.length}명 제출</span>
+            <button onClick={handleRefreshStatus} title="제출 현황 새로고침"
+              className="flex items-center justify-center w-5 h-5 rounded text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                <polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/>
+                <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
+              </svg>
+            </button>
           </div>
         </div>
         <div className="flex items-center gap-2 flex-shrink-0">
@@ -319,11 +336,12 @@ export default function SubmissionsTab({ period }) {
                   </td>
                   {days.map(d => {
                     const entry = shifts[d] || null
-                    const code = entry?.code || ''
+                    const codes = entry?.codes || []
+                    const code = codes.join('/')      // 표시용 ("N" 또는 "N/휴가")
                     const note = entry?.note || ''
                     const wd = getWd(startDate, d)
                     const isSat = wd === 5, isSun = wd === 6
-                    const c = code ? sc(code) : null
+                    const c = codes.length > 0 ? sc(codes[0]) : null   // 첫 코드 색상 사용
                     const isActive = activePick?.nurseId === st.nurse_id && activePick?.day === d
                     const isFixedOff = fixedOffMap[st.nurse_id] === wd
                     const baseBg = isSun ? '#fef2f2' : isSat ? '#eff6ff' : isFixedOff ? '#f5f5f4' : undefined
@@ -342,7 +360,7 @@ export default function SubmissionsTab({ period }) {
                           {isFixedOff ? (
                             <span className="font-semibold" style={{ color: '#854D0E', fontSize: 11 }}>주</span>
                           ) : code ? (
-                            <span className="relative font-semibold" style={{ color: code === 'N' ? '#B91C1C' : '#374151', fontSize: 11, lineHeight: 1 }} title={note || undefined}>
+                            <span className="relative font-semibold" style={{ color: codes[0] === 'N' ? '#B91C1C' : '#374151', fontSize: code.length > 3 ? 9 : 11, lineHeight: 1 }} title={note || undefined}>
                               {code}
                               {note && (
                                 <span className="absolute -top-1 -right-1 w-2 h-2 bg-amber-400 rounded-full border border-white" style={{ display: 'inline-block' }} />
@@ -433,13 +451,12 @@ export default function SubmissionsTab({ period }) {
         const nurse = nursesMap[nurseId] || null
         const sd = period?.start_date || null
         const shiftsForNurse = Object.fromEntries(
-          Object.entries(allRequestsRef.current[nurseId] || {}).map(([d, v]) => [+d, v.code])
+          Object.entries(allRequestsRef.current[nurseId] || {}).map(([d, v]) => [+d, (v.codes || [])[0] || ''])
         )
         const shiftsWithout = { ...shiftsForNurse }; delete shiftsWithout[day]
-        const currentCode = shiftsForNurse[day] || ''
         const note = allRequestsRef.current[nurseId]?.[day]?.note
         const popW = Math.min(260, window.innerWidth - 8)
-        const popH = (blockPopup ? 300 : 210) + (note ? 40 : 0)
+        const popH = (blockPopup ? 340 : 260) + (note ? 40 : 0)
         const top = activePick.y + 2 + popH > window.innerHeight ? activePick.y - popH - 2 : activePick.y + 2
         const left = Math.max(4, Math.min(activePick.x, window.innerWidth - popW - 4))
         return (
@@ -447,11 +464,23 @@ export default function SubmissionsTab({ period }) {
           className="fixed z-50 bg-white rounded-xl shadow-xl border border-slate-200"
           style={{ width: popW, top, left }}>
           <div className="p-2 space-y-1.5">
+            {/* 현재 선택 미리보기 */}
+            <div className="flex items-center gap-1 flex-wrap min-h-[22px]">
+              {pickerSelected.length > 0 ? pickerSelected.map(s => {
+                const c = sc(s)
+                return (
+                  <span key={s} className="px-1.5 py-0.5 rounded font-bold text-[10px]"
+                    style={{ background: c.fg, color: 'white' }}>{s}</span>
+                )
+              }) : <span className="text-[10px] text-slate-300">선택 없음</span>}
+            </div>
+
             {note && (
               <div className="flex items-start gap-1 px-1.5 py-1.5 rounded-lg bg-amber-50 border border-amber-200">
                 <span className="text-[10px] text-amber-800 leading-snug">{note}</span>
               </div>
             )}
+
             {SHIFT_GROUPS.map(grp => (
               <div key={grp.label}>
                 <p className="text-[10px] font-semibold mb-1 px-0.5" style={{ color: grp.color }}>{grp.label}</p>
@@ -459,23 +488,31 @@ export default function SubmissionsTab({ period }) {
                   {grp.shifts.map(code => {
                     const c = sc(code)
                     const vs = nurse ? validate(shiftsWithout, day, code, nurse, rules, sd) : []
-                    const isCur = code === currentCode
+                    const isSel = pickerSelected.includes(code)
                     return (
                       <button key={code}
-                        onClick={() => vs.length > 0 && !isCur
-                          ? setBlockPopup({ code, violations: vs })
-                          : handlePickCode(code)}
+                        onClick={() => {
+                          setBlockPopup(null)
+                          if (vs.length > 0 && !isSel) { setBlockPopup({ code, violations: vs }); return }
+                          setPickerSelected(prev =>
+                            prev.includes(code) ? prev.filter(x => x !== code) : [...prev, code]
+                          )
+                        }}
                         className="relative rounded-md font-bold py-0.5 px-2 text-xs transition-all"
                         style={{
-                          background: isCur ? c.fg : c.bg,
-                          color: isCur ? 'white' : c.fg,
-                          border: `1.5px solid ${vs.length > 0 && !isCur ? '#FCA5A5' : isCur ? c.fg : c.border}`,
-                          opacity: vs.length > 0 && !isCur ? 0.45 : 1,
+                          background: isSel ? c.fg : c.bg,
+                          color: isSel ? 'white' : c.fg,
+                          border: `1.5px solid ${vs.length > 0 && !isSel ? '#FCA5A5' : isSel ? c.fg : c.border}`,
+                          opacity: vs.length > 0 && !isSel ? 0.45 : 1,
                         }}>
                         {code}
-                        {vs.length > 0 && !isCur && (
+                        {vs.length > 0 && !isSel && (
                           <span className="absolute -top-1 -right-1 bg-red-500 text-white rounded-full flex items-center justify-center font-black"
                             style={{ width: 13, height: 13, fontSize: 8 }}>!</span>
+                        )}
+                        {isSel && (
+                          <span className="absolute -top-1 -right-1 text-white rounded-full flex items-center justify-center font-black"
+                            style={{ background: '#2A3A7A', width: 13, height: 13, fontSize: 8 }}>✓</span>
                         )}
                       </button>
                     )
@@ -497,10 +534,16 @@ export default function SubmissionsTab({ period }) {
               </div>
             )}
 
-            <div className="border-t border-slate-100 pt-1">
-              <button onClick={() => handlePickCode('')}
-                className="w-full py-1 text-[10px] font-semibold text-slate-400 hover:text-red-500 hover:bg-red-50 rounded transition-colors">
+            <div className="border-t border-slate-100 pt-1 flex gap-1">
+              <button onClick={() => handlePickCodes([])}
+                className="py-1 px-2 text-[10px] font-semibold text-slate-400 hover:text-red-500 hover:bg-red-50 rounded transition-colors flex-shrink-0">
                 지우기
+              </button>
+              <button
+                onClick={() => handlePickCodes(pickerSelected)}
+                className="flex-1 py-1 text-[10px] font-bold text-white rounded transition-colors"
+                style={{ background: pickerSelected.length > 0 ? '#2A3A7A' : '#94A3B8' }}>
+                {pickerSelected.length === 0 ? '선택 없음' : `${pickerSelected.join('/')} 저장`}
               </button>
             </div>
           </div>
