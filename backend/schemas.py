@@ -106,6 +106,8 @@ class RequestItem(BaseModel):
     code: str
     is_or: bool = False
     note: str = ''
+    condition: str = 'B'    # 'A' or 'B'
+    score: int = 100        # 신청 시점 점수 스냅샷 (백엔드에서 채워 넣음)
 
 class RequestOut(RequestItem):
     id: str
@@ -120,12 +122,27 @@ class SubmissionStatus(BaseModel):
 class RequestsUpsertBody(BaseModel):
     items: list[RequestItem]
 
+class NurseScoreOut(BaseModel):
+    nurse_id: str
+    score: int
+
+class AssignmentLogEntry(BaseModel):
+    nurse_id: str
+    name: str = ''
+    code: str = ''
+    requested_codes: str = ''
+    condition: str
+    score: int
+    rank: int
+    is_random: bool
+    is_assigned: bool
+
 
 # ── 근무표 ─────────────────────────────────────────────────────────────
 
 class GenerateRequest(BaseModel):
     period_id: str
-    timeout_seconds: int = 180
+    timeout_seconds: int = 300
 
 class JobStatusOut(BaseModel):
     job_id: str
@@ -162,5 +179,17 @@ class EvaluateOut(BaseModel):
     grade: str
     violation_details: list[str]
     request_fulfilled: dict[str, Any]
-    bad_patterns: dict[str, int]
-    deductions: list[Any]
+
+
+class ConflictWarning(BaseModel):
+    day: int
+    date_str: str           # 예: "3/15 (일)"
+    a_off_nurses: list[str] # A-OFF 신청 간호사 이름 목록
+    available: int          # 남은 가용 인원
+    required: int           # 최소 필요 인원 (D+E+N)
+    message: str
+
+class ConflictCheckOut(BaseModel):
+    warnings: list[ConflictWarning]
+    bad_patterns: dict[str, int] = {}
+    deductions: list[Any] = []

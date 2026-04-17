@@ -2,7 +2,12 @@ import { useState, useRef, useEffect } from 'react'
 import { validate } from '../utils/validate'
 import { SHIFT_GROUPS, WD, sc, getWd, getDate } from '../utils/constants'
 
-export default function ShiftSheet({ day, shifts, notes = {}, nurse, rules, startDate, onSelect, onClose }) {
+const PRIORITY_CODES = new Set([
+  'D','E','N','D9','D1','중1','중2',
+  'OFF','POFF','수면','생휴','휴가','특휴','공가','경가','보수','번표','주',
+])
+
+export default function ShiftSheet({ day, shifts, notes = {}, conditions = {}, nurse, rules, startDate, aLeft = 3, onSelect, onClose }) {
   const [confirm, setConfirm] = useState(null)  // { shift, violations }
   const [noteStep, setNoteStep] = useState(null) // 사유 입력 단계
   const [noteText, setNoteText] = useState('')
@@ -16,6 +21,7 @@ export default function ShiftSheet({ day, shifts, notes = {}, nurse, rules, star
 
   // 멀티셀렉트 상태 — ShiftSheet 열릴 때 기존 선택으로 초기화
   const [selected, setSelected] = useState(currentCodes)
+  const [condition, setCondition] = useState(conditions[day] || 'B')
 
   useEffect(() => {
     if (noteStep) {
@@ -32,7 +38,7 @@ export default function ShiftSheet({ day, shifts, notes = {}, nurse, rules, star
   }
 
   const handleSave = () => {
-    onSelect(selected, noteText.trim())
+    onSelect(selected, noteText.trim(), condition)
   }
 
   return (
@@ -170,8 +176,40 @@ export default function ShiftSheet({ day, shifts, notes = {}, nurse, rules, star
               <div style={{ height: 'env(safe-area-inset-bottom, 16px)', minHeight: 16 }} />
             </div>
 
+            {/* A/B 조건 선택 */}
+            {selected.length > 0 && selected.some(s => PRIORITY_CODES.has(s)) && (
+              <div className="px-4 pt-2 pb-1 flex-shrink-0 border-t border-slate-100">
+                <p className="text-[11px] font-semibold text-slate-400 mb-1.5">우선순위 조건</p>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => setCondition('A')}
+                    disabled={condition !== 'A' && aLeft <= 0}
+                    className="flex-1 py-2 rounded-xl font-bold text-sm transition-all"
+                    style={{
+                      background: condition === 'A' ? '#4338CA' : '#EEF2FF',
+                      color: condition === 'A' ? 'white' : aLeft <= 0 ? '#A5B4FC' : '#4338CA',
+                      opacity: condition !== 'A' && aLeft <= 0 ? 0.5 : 1,
+                    }}>
+                    A조건{condition !== 'A' && aLeft <= 0 ? ' (소진)' : ''}
+                  </button>
+                  <button
+                    onClick={() => setCondition('B')}
+                    className="flex-1 py-2 rounded-xl font-bold text-sm transition-all"
+                    style={{
+                      background: condition === 'B' ? '#64748B' : '#F1F5F9',
+                      color: condition === 'B' ? 'white' : '#64748B',
+                    }}>
+                    B조건 (무제한)
+                  </button>
+                </div>
+                <p className="text-[10px] text-slate-400 mt-1">
+                  {condition === 'A' ? 'A: 우선순위 높음 · -1점' : 'B: 우선순위 낮음 · -3점'}
+                </p>
+              </div>
+            )}
+
             {/* 하단 확정 버튼 */}
-            <div className="px-4 pb-4 pt-2 flex gap-2 flex-shrink-0 border-t border-slate-100">
+            <div className="px-4 pb-4 pt-2 flex gap-2 flex-shrink-0">
               <button
                 onClick={() => { onSelect([], ''); onClose() }}
                 className="py-3 px-4 rounded-xl font-semibold text-slate-500 bg-slate-100 hover:bg-slate-200 transition-colors text-sm flex-shrink-0">
@@ -182,7 +220,6 @@ export default function ShiftSheet({ day, shifts, notes = {}, nurse, rules, star
                   if (selected.length === 0) { onSelect([], ''); onClose(); return }
                   setNoteStep(true)
                 }}
-                disabled={false}
                 className="flex-1 py-3 rounded-xl font-bold text-white transition-colors text-sm"
                 style={{ background: selected.length > 0 ? '#2A3A7A' : '#94A3B8' }}>
                 {selected.length === 0 ? '선택하세요' : `${selected.join(' / ')} 선택 완료`}

@@ -101,7 +101,7 @@ const TOUR_STEPS = [
   {
     target: '#admin-schedule-generate', placement: 'bottom', disableBeacon: true,
     title: '④ 근무표 생성',
-    content: 'OR-Tools가 모든 규칙과 신청을 반영해 최적 근무표를 자동 생성합니다(최대 180초). 생성 후 셀 클릭으로 수동 편집하고, 엑셀 버튼으로 저장하세요.',
+    content: 'OR-Tools가 모든 규칙과 신청을 반영해 최적 근무표를 자동 생성합니다(최대 300초). 생성 후 셀 클릭으로 수동 편집하고, 엑셀 버튼으로 저장하세요.',
   },
 ]
 

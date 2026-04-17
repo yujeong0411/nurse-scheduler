@@ -163,6 +163,9 @@ class Nurse:
         return cls(**filtered)
 
 
+# 우선순위 조건과 무관하게 항상 hard로 처리할 코드 (의료/법적 필수)
+_ALWAYS_HARD_CODES = {"병가", "D9", "D1"}
+
 @dataclass
 class Request:
     """개인 요청 1건
@@ -172,11 +175,18 @@ class Request:
       휴무 희망: OFF, 법휴, 휴가, 특휴, 공가, 경가, 보수, 생휴, 수면
       제외 요청: D 제외, E 제외, N 제외
       자동 발생: 주, 수면, 생휴, POFF (솔버가 배정)
+
+    우선순위:
+      condition='A' → 우선순위 높음 (월 최대 3개), OFF계열도 hard 유지
+      condition='B' → 우선순위 낮음 (제한 없음), OFF계열은 soft로 처리
+      score = 신청 시점 간호사 점수 스냅샷 (초기 100, A신청 -1, B신청 -3)
     """
     nurse_id: int                   # 어느 간호사가
     day: int                        # 며칠에 (1~31)
     code: str                       # 뭘 원하는지
     is_or: bool = False             # OR 요청 (슬래시 코드: D/VAC 등) → 항상 soft
+    condition: str = 'B'            # 우선순위 조건 ('A' or 'B')
+    score: int = 100                # 신청 시점 점수 스냅샷
 
     def __post_init__(self):
         self.code = self.code.strip()  # 공백 제거
@@ -189,14 +199,20 @@ class Request:
         if self.code.startswith("수면"):
             self.code = "수면"
 
-    # @property : 함수인데 변수처럼 -> 사용할 때 ()가 필요 없음 request.is_hard  
+    # @property : 함수인데 변수처럼 -> 사용할 때 ()가 필요 없음 request.is_hard
     @property
     def is_hard(self) -> bool:
-        """반드시 지켜야 하는 확정 요청인가?"""
+        """반드시 지켜야 하는 확정 요청인가?
+
+        - 병가/법휴/필수/D9/D1: 조건 무관하게 항상 hard
+        - 그 외 모든 코드: A/B 조건과 무관하게 soft (S1 가중치로 우선순위 결정)
+          A조건 → weight 800+score*5 (soft-high)
+          B조건 → weight 150+score*5
+        - OR 요청: 항상 soft
+        """
         if self.is_or:
-            return False  # OR 요청은 항상 soft
-        return self.code in ("주", "OFF", "법휴", "휴가", "병가", "특휴", "생휴", "수면", "공가", "경가", "보수", "필수", "번표",
-                             "D9", "D1", "중1")  # 입력 전용 중간근무: 요청 시 무조건 반영
+            return False
+        return self.code in _ALWAYS_HARD_CODES  # 병가/법휴/필수/D9/D1만 hard
 
     @property
     def is_exclude(self) -> bool:
@@ -228,6 +244,10 @@ class Request:
         result = {"nurse_id": self.nurse_id, "day": self.day, "code": self.code}
         if self.is_or:
             result["is_or"] = True
+        if self.condition != 'B':
+            result["condition"] = self.condition
+        if self.score != 100:
+            result["score"] = self.score
         return result
 
     @classmethod
@@ -237,6 +257,8 @@ class Request:
             day=d["day"],
             code=d["code"],
             is_or=d.get("is_or", False),
+            condition=d.get("condition", "B"),
+            score=d.get("score", 100),
         )
 
 @dataclass

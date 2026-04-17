@@ -16,13 +16,13 @@ Hard Constraints:
  H2a. 중2 role 아닌 간호사 → 중2 배정 불가
  H2b. D9/D1/중1 입력 전용 → 하드 요청 없으면 자동배정 불가
  H3.  역순 금지 (D→E→N)
- H3a. N→1off→(D/중간근무) 금지 — N 후 D·D9·D1·중1·중2까지 최소 2일 휴무
-       N 후 1휴무 뒤 E·N만 허용
+ H3a. N→1off→D·중간·N 금지 (E만 허용) — NNN 연속은 허용
+       단일 N: N→1휴무→E 가능, N→1휴무→D/중간 불가(2휴무 필요)
+       NNN: N→N→N 패턴은 H3a 비적용 (di+1이 휴무일 때만 di+2 제약 발동)
  H3c. N 다음날 보수/필수/번표 금지 (실질 근무 준하는 휴무)
  H4.  최대 연속 근무 (5일)
  H5.  최대 연속 N (3개)
  H6.  N 2연속 후 휴무 2개
- H7.  월 N 제한 (6개)
  H8.  확정 요청 직접 매핑
  H9.  제외 요청
  H10. 고정 주휴 (고정요일에 주 배정)
@@ -46,6 +46,8 @@ Soft Constraints:
  S4. 주말 균등 배분 (-8)
  S5. 일반 3명 이하 권고 (-3)
  S6. N 연속 배정 보상 (+20/쌍) — N 블록 유도, N 휴무 N 패턴 억제
+ S7. 연속 휴무 보상 (+15/쌍) — 산발적 휴무 억제, 연속 휴무 유도
+ S8. 월 N 초과 억제 (-300/개) — max_N_per_month 초과 시 강한 페널티 (소프트)
 """
 from datetime import date, timedelta
 from ortools.sat.python import cp_model
@@ -359,12 +361,13 @@ def validate_requests(
                             f" -> {fmt_day(r.day + 1)} {next_r_code})"
                         )
 
-        # 11. N→1휴무→D/중간근무 패턴 (요청 내에서)
+        # 11. N→1휴무→D/중간근무/N 패턴 (요청 내에서)
+        _MID_AND_D_N = _MID_AND_D | {"N"}
         for r in reqs:
             if r.code == "N":
                 code1 = req_day_code.get(r.day + 1, "")
                 code2 = req_day_code.get(r.day + 2, "")
-                if code1 and code1 not in WORK_SHIFTS and code2 in _MID_AND_D:
+                if code1 and code1 not in WORK_SHIFTS and code2 in _MID_AND_D_N:
                     warnings.append(
                         f"{nurse.name}: N→휴무→{code2} 패턴 불가"
                         f" ({fmt_day(r.day)} N → {fmt_day(r.day + 1)} {code1}"
@@ -376,20 +379,20 @@ def validate_requests(
         if tail:
             day1_code = req_day_code.get(1, "")
             day2_code = req_day_code.get(2, "")
-            # tail[-1]이 N이면 1일에 D/중간 요청 불가
+            # tail[-1]이 N이면 1일에 D/중간 요청 불가 (N→N 연속은 허용)
             if tail[-1] == "N" and day1_code in _MID_AND_D:
                 warnings.append(
                     f"{nurse.name}: 전월 마지막 N 직후 1일 {day1_code} 요청 불가"
                 )
-            # tail[-2:]가 [N, 휴무]이면 1일에 D/중간 요청 불가
+            # tail[-2:]가 [N, 휴무]이면 1일에 D/중간/N 요청 불가
             if (len(tail) >= 2 and tail[-2] == "N"
                     and tail[-1] not in WORK_SHIFTS
-                    and day1_code in _MID_AND_D):
+                    and day1_code in _MID_AND_D_N):
                 warnings.append(
                     f"{nurse.name}: 전월 N→휴무 이후 1일 {day1_code} 요청 불가"
                 )
-            # tail[-1]이 N이면 1일 휴무+2일 D/중간 패턴 불가
-            if tail[-1] == "N" and day1_code and day1_code not in WORK_SHIFTS and day2_code in _MID_AND_D:
+            # tail[-1]이 N이면 1일 휴무+2일 D/중간/N 패턴 불가
+            if tail[-1] == "N" and day1_code and day1_code not in WORK_SHIFTS and day2_code in _MID_AND_D_N:
                 warnings.append(
                     f"{nurse.name}: 전월 N → 1일 {day1_code} → 2일 {day2_code} 패턴 불가"
                 )
@@ -506,6 +509,94 @@ def validate_requests(
     return warnings
 
 
+def _diagnose_infeasible(nurses, requests, rules, start_date, num_days, shifts, full_model, checkpoints: dict):
+    """INFEASIBLE 원인 제약 그룹 진단.
+
+    checkpoints: {"그룹명": 제약인덱스} — solve_schedule에서 각 H* 그룹 직후 기록
+    """
+    from ortools.sat.python import cp_model as _cp
+
+    base_proto = full_model.proto
+    total = len(base_proto.constraints)
+    num_nurses = len(nurses)
+
+    _log(f"[진단] 총 제약 {total}개 | 그룹 체크포인트: {list(checkpoints.keys())}")
+
+    # ── 사전 분석 (solver 없이) ──
+    chiefs = [n for n in nurses if n.grade == "책임"]
+    seniors = [n for n in nurses if n.grade in ("책임", "서브차지")]
+    _log(f"[진단] 간호사 구성: 총 {num_nurses}명 | 책임 {len(chiefs)}명 | 책임+서브차지 {len(seniors)}명")
+    _log(f"[진단] 규칙: daily_N={rules.daily_N} maxN={rules.max_N_per_month} "
+         f"min_chief={rules.min_chief_per_shift} min_senior={rules.min_senior_per_shift}")
+    # H12 분석: 책임만으로 N 커버 가능한지
+    if chiefs and rules.min_chief_per_shift > 0:
+        need_chief_n = rules.min_chief_per_shift * num_days
+        cap_chief_n  = len(chiefs) * rules.max_N_per_month
+        _log(f"[진단] H12 책임N 필요량={need_chief_n} vs 용량={cap_chief_n} "
+             f"({'OK' if cap_chief_n >= need_chief_n else '★부족!'})")
+    # H13 분석: 책임+서브차지로 N 커버 가능한지
+    if seniors and rules.min_senior_per_shift > 0:
+        need_senior_n = rules.min_senior_per_shift * num_days
+        cap_senior_n  = len(seniors) * rules.max_N_per_month
+        _log(f"[진단] H13 시니어N 필요량={need_senior_n} vs 용량={cap_senior_n} "
+             f"({'OK' if cap_senior_n >= need_senior_n else '★부족!'})")
+    # H14 분석: ROLE_TIERS 마지막 티어 N 상한
+    from engine.models import ROLE_TIERS
+    for tier_roles, max_d, max_e, max_n in ROLE_TIERS:
+        tier_nurses = [n for n in nurses if n.role in tier_roles]
+        if tier_nurses:
+            non_tier = num_nurses - len(tier_nurses)
+            # 이 그룹 N 상한 + 나머지 전원 N 가능 인원으로 daily_N 충족 여부
+            max_daily_n = min(max_n, len(tier_nurses)) + non_tier
+            _log(f"[진단] H14 역할티어 {sorted(tier_roles)} → N 상한/일={max_n} | "
+                 f"해당 간호사={len(tier_nurses)}명 | 비해당={non_tier}명 | "
+                 f"이론최대N={max_daily_n} "
+                 f"{'OK' if max_daily_n >= rules.daily_N else f'★ 절대 부족! (최대{max_daily_n}<필요{rules.daily_N})'}")
+
+    def test_up_to(n: int) -> str:
+        """'OK' | 'INFEASIBLE' | 'TIMEOUT' 반환"""
+        m = _cp.CpModel()
+        m.proto.variables.extend(base_proto.variables)
+        m.proto.constraints.extend(
+            base_proto.constraints[i] for i in range(n)
+        )
+        s = _cp.CpSolver()
+        s.parameters.max_time_in_seconds = 20
+        s.parameters.num_workers = 2
+        status = s.solve(m)
+        if status in (_cp.OPTIMAL, _cp.FEASIBLE):
+            return "OK"
+        elif status == _cp.INFEASIBLE:
+            return "INFEASIBLE"
+        else:
+            return "TIMEOUT"
+
+    # 그룹별로 순서대로 테스트
+    prev_name = "(기본 변수)"
+    prev_idx = 0
+    for name, idx in sorted(checkpoints.items(), key=lambda x: x[1]):
+        result = test_up_to(idx)
+        _log(f"[진단]   {prev_name}~{name} (제약 {prev_idx}→{idx}): {result}")
+        if result == "INFEASIBLE":
+            _log(f"[진단] ★ 원인 그룹: [{name}] 제약 추가 시 INFEASIBLE 발생 ({prev_idx}~{idx}번 제약)")
+            return
+        elif result == "TIMEOUT":
+            _log(f"[진단]   → TIMEOUT — 더 긴 시간이 필요하거나 다음 그룹에서 진단 계속")
+        prev_name = name
+        prev_idx = idx
+
+    # 체크포인트 이후 나머지
+    if prev_idx < total:
+        result = test_up_to(total)
+        _log(f"[진단]   {prev_name}~끝 (제약 {prev_idx}→{total}): {result}")
+        if result == "INFEASIBLE":
+            _log(f"[진단] ★ 원인 그룹: 마지막 그룹 ({prev_idx}~{total}번 제약)")
+        elif result == "TIMEOUT":
+            _log("[진단] 마지막 그룹 TIMEOUT — 시간 부족으로 진단 불가")
+    else:
+        _log("[진단] 모든 그룹 OK — 조합 충돌일 수 있음")
+
+
 def solve_schedule(
     nurses: list[Nurse],
     requests: list[Request],
@@ -530,6 +621,9 @@ def solve_schedule(
             for si in range(NUM_TYPES):
                 shifts[(ni, di, si)] = model.new_bool_var(f"s_n{ni}_d{di}_s{si}")
 
+    # 진단용 체크포인트: 각 H* 그룹 추가 후 제약 수 기록
+    _cp_idx: dict[str, int] = {}
+
     # 인덱스 맵
     nurse_idx = {nurse.id: i for i, nurse in enumerate(nurses)}
 
@@ -553,6 +647,7 @@ def solve_schedule(
             model.add(
                 sum(shifts[(ni, di, si)] for si in range(NUM_TYPES)) == 1
             )
+    _cp_idx["H1(1개배정)"] = len(model.proto.constraints)
 
     # ── H2. 일일 인원 ──
     for di in range(num_days):
@@ -581,16 +676,18 @@ def solve_schedule(
             == rules.daily_N
         )
 
+    _cp_idx["H2(일일인원)"] = len(model.proto.constraints)
     # ── H2a. 중2 role 아닌 간호사는 중2 근무 금지 (D9/D1/중1은 별도 처리) ──
     non_중2_nurses = [ni for ni, n in enumerate(nurses) if n.role != "중2"]
     for ni in non_중2_nurses:
         for di in range(num_days):
             model.add(shifts[(ni, di, _중2)] == 0)
 
-    # ── H2b. D9/D1/중1 입력 전용: 하드 요청이 없으면 자동배정 불가 ──
+    # ── H2b. D9/D1/중1 입력 전용: 신청(hard/soft 무관)이 없으면 자동배정 불가 ──
+    # D9/D1/중1은 신청 없이 배정이 불가능한 구조이므로 condition 무관하게 허용
     _input_only_allowed: dict[int, set] = {_D9: set(), _D1: set(), _중1: set()}
     for r in requests:
-        if r.is_hard and r.code in ("D9", "D1", "중1") and r.nurse_id in nurse_idx:
+        if r.code in ("D9", "D1", "중1") and not r.is_or and r.nurse_id in nurse_idx:
             ni = nurse_idx[r.nurse_id]
             di = r.day - 1
             if 0 <= di < num_days and r.code in NAME_TO_IDX:
@@ -622,16 +719,16 @@ def solve_schedule(
                         if sj in SHIFT_LEVEL and SHIFT_LEVEL[last_idx] > SHIFT_LEVEL[sj]:
                             model.add(shifts[(ni, 0, sj)] == 0)
 
-        # ── 경계 H3a: N→1off→(D/중간근무) 금지 ──
-        # tail[-2:]가 [N, OFF계열]이면 day0에 D/중간 금지
+        # ── 경계 H3a: N→1off→(D/중간근무/N) 금지 ──
+        # tail[-2:]가 [N, OFF계열]이면 day0에 D/중간/N 금지
         if tail_len >= 2:
             t2, t1 = tail[-2], tail[-1]
             if t2 == "N" and t1 in ("OFF", "주", "법휴", "수면", "생휴", "휴가", "병가", "특휴", "공가", "경가", "보수", "POFF", "필수", "번표"):
-                for si in D_FAMILY + M_FAMILY:
+                for si in D_FAMILY + M_FAMILY + [_N]:
                     model.add(shifts[(ni, 0, si)] == 0)
-        # tail[-1]이 N이면 day0 OFF + day1 D/중간 금지
+        # tail[-1]이 N이면 day0 OFF + day1 D/중간/N 금지
         if tail_len >= 1 and tail[-1] == "N" and num_days >= 2:
-            for si in D_FAMILY + M_FAMILY:
+            for si in D_FAMILY + M_FAMILY + [_N]:
                 model.add(
                     sum(shifts[(ni, 0, oi)] for oi in ALL_OFF)
                     + shifts[(ni, 1, si)] <= 1
@@ -704,6 +801,7 @@ def solve_schedule(
                         shifts[(ni, 0, _N)] <= sum(shifts[(ni, 1 + k, oi)] for oi in ALL_OFF)
                     )
 
+    _cp_idx["H2a-H2b(중2/입력전용)"] = len(model.proto.constraints)
     # ── H3. 역순 금지 ──
     if rules.ban_reverse_order:
         for ni in range(num_nurses):
@@ -713,13 +811,18 @@ def solve_schedule(
                         shifts[(ni, di, si)] + shifts[(ni, di + 1, sj)] <= 1
                     )
 
-    # ── H3a. N→1휴무→(D/중간근무) 금지 ──
-    # N 후 1휴무 뒤에는 E·N만 허용, D·D9·D1·중1·중2 불가
+    # ── H3a. N→1휴무→(D/중간근무/N) 금지 ──
+    # N 후 1휴무 뒤에는 E만 허용, D·D9·D1·중1·중2·N 불가
+    # 단, N→N→N(NNN 연속) 패턴은 허용 — di+1이 OFF일 때만 di+2 제약 적용
+    # CP-SAT 표현: N[di] + off[di+1] + D/M/N[di+2] <= 2
+    #   off[di+1]=1 → N[di+2]≤0 (금지)
+    #   off[di+1]=0 (= di+1이 N) → 제약 비활성화 (NNN 허용)
     for ni in range(num_nurses):
         for di in range(num_days - 2):
-            for si in D_FAMILY + M_FAMILY:
+            off_next = sum(shifts[(ni, di + 1, oi)] for oi in ALL_OFF)
+            for si in D_FAMILY + M_FAMILY + [_N]:
                 model.add(
-                    shifts[(ni, di, _N)] + shifts[(ni, di + 2, si)] <= 1
+                    shifts[(ni, di, _N)] + off_next + shifts[(ni, di + 2, si)] <= 2
                 )
 
 
@@ -732,6 +835,7 @@ def solve_schedule(
                     shifts[(ni, di, _N)] + shifts[(ni, di + 1, si)] <= 1
                 )
 
+    _cp_idx["H3(역순금지)"] = len(model.proto.constraints)
     # ── H4. 최대 연속 근무 (5일) ──
     # ALL_OFF 모두 비근무로 인정
     max_cw = rules.max_consecutive_work
@@ -751,6 +855,7 @@ def solve_schedule(
                     for dd in range(max_cn + 1)) <= max_cn
             )
 
+    _cp_idx["H4-H5(연속근무/연속N)"] = len(model.proto.constraints)
     # ── H6. N 2연속 이상(NN/NNN) 블록 종료 후 휴무 ──
     # 핵심: 블록 중간이 아닌 블록 끝(di)에서만 off_after 강제
     # 조건: N[di] AND N[di-1] AND NOT N[di+1] → off at di+1..di+off_after
@@ -771,12 +876,41 @@ def solve_schedule(
                         <= sum(shifts[(ni, target, oi)] for oi in ALL_OFF)
                     )
 
-    # ── H7. 월 N 제한 (6개) ──
-    for ni in range(num_nurses):
-        model.add(
-            sum(shifts[(ni, di, _N)] for di in range(num_days))
-            <= rules.max_N_per_month
-        )
+    _cp_idx["H6(NN후휴무)"] = len(model.proto.constraints)
+
+    # ── [진단용] N 가용 인원 분석 ──
+    # 경계 H6으로 인해 강제 휴무인 날 계산
+    _n_blocked_days: dict[int, set[int]] = {ni: set() for ni in range(num_nurses)}
+    for ni, nurse in enumerate(nurses):
+        tail = nurse.prev_tail_shifts
+        if not tail:
+            continue
+        tail_len = len(tail)
+        if tail_len >= 2 and tail[-2] == "N" and tail[-1] == "N":
+            for k in range(rules.off_after_2N):
+                if k < num_days:
+                    _n_blocked_days[ni].add(k)
+    _total_n_capacity = sum(
+        rules.max_N_per_month - len(_n_blocked_days[ni])
+        for ni in range(num_nurses)
+    )
+    _total_n_needed = rules.daily_N * num_days
+    _n_tail_blocked = sum(len(v) for v in _n_blocked_days.values())
+    _log(f"[진단] N 가용 분석: 필요={_total_n_needed} | "
+         f"maxN합계={num_nurses*rules.max_N_per_month} | "
+         f"경계NN 강제휴무합={_n_tail_blocked}일 | "
+         f"실질 N 용량={_total_n_capacity}")
+    # 날짜별로 N 가능 간호사 수 확인 (경계제약 기준)
+    _day_n_avail = []
+    for di in range(num_days):
+        avail = sum(1 for ni in range(num_nurses) if di not in _n_blocked_days[ni])
+        _day_n_avail.append(avail)
+    _min_avail = min(_day_n_avail)
+    _min_days = [di+1 for di, a in enumerate(_day_n_avail) if a == _min_avail]
+    _log(f"[진단] 날짜별 N 최소 가용 인원: {_min_avail}명 (day {_min_days[:5]}...)")
+    if _min_avail < rules.daily_N:
+        _log(f"[진단] ★ 경계조건으로 day {_min_days[:3]}에 N 가용인원({_min_avail})이 "
+             f"daily_N({rules.daily_N})보다 부족!")
 
     # ── 병가 기간 계산 ──
     # 병가 신청 첫날~마지막날 사이는 전부 병가로 처리
@@ -799,6 +933,7 @@ def solve_schedule(
     _holiday_days = set(rules.public_holidays)
     public_holiday_dis = {h - 1 for h in _holiday_days if 1 <= h <= num_days}
 
+    _cp_idx["H6(NN후휴무)"] = len(model.proto.constraints)
     # ── H8. 확정 요청 ──
     # 각 요청 코드를 해당 인덱스로 직접 매핑
     fixed_off_days = set()  # (ni, di) 고정 주휴일
@@ -881,6 +1016,7 @@ def solve_schedule(
         elif excluded == "N":
             model.add(shifts[(ni, di, _N)] == 0)
 
+    _cp_idx["H8-H9(확정요청/제외)"] = len(model.proto.constraints)
     # ── H10. 고정 주휴 ──
     for ni, nurse in enumerate(nurses):
         if nurse.fixed_weekly_off is not None:
@@ -923,6 +1059,7 @@ def solve_schedule(
                 if weekday_of(di) == nurse.fixed_weekly_off:
                     nurse_committed_days[ni].add(di)
 
+    _cp_idx["H10(고정주휴)"] = len(model.proto.constraints)
     # ── H11. 주당 OFF 정확히 N개 (일반 1개, 주4일제 2개) ──
     # 하드 커밋·고정주휴 제외 남은 날만큼 OFF 요구 (병가·휴가 등 몰린 주 자동 처리)
     for ni in range(num_nurses):
@@ -938,6 +1075,16 @@ def solve_schedule(
             effective_off = min(required_off, available)
             model.add(off_sum == effective_off)
 
+    _cp_idx["H11(주당OFF)"] = len(model.proto.constraints)
+    # ── [진단] H11 후 간호사별 OFF 현황 ──
+    _off_totals = {}
+    for ni, nurse in enumerate(nurses):
+        required_off = 2 if nurse.is_4day_week else 1
+        _off_total = required_off * 4  # 4주
+        _off_totals[ni] = _off_total
+    _주_count = sum(1 for ni, nurse in enumerate(nurses) if nurse.fixed_weekly_off is not None) * 4
+    _log(f"[진단] H11후: 고정주휴 설정 간호사={sum(1 for n in nurses if n.fixed_weekly_off is not None)}명 "
+         f"| 月 총 주 수={_주_count} OFF 수={sum(_off_totals.values())} 생휴예상={sum(1 for n in nurses if not n.is_male)}")
     # ── H12. 책임 1명 이상 (D/E/N만, 중2 제외) ──
     chiefs = [ni for ni, n in enumerate(nurses) if n.grade == "책임"]
     if chiefs and rules.min_chief_per_shift > 0:
@@ -968,6 +1115,7 @@ def solve_schedule(
                 >= rules.min_senior_per_shift
             )
 
+    _cp_idx["H12(책임등급)"] = len(model.proto.constraints)
     # ── H14. 역할 누적 제한 ──
     for tier_roles, max_d, max_e, max_n in ROLE_TIERS:
         tier_nurses = [ni for ni, n in enumerate(nurses)
@@ -985,6 +1133,7 @@ def solve_schedule(
                 sum(shifts[(ni, di, _N)] for ni in tier_nurses) <= max_n
             )
 
+    _cp_idx["H14(역할티어)"] = len(model.proto.constraints)
     # ── H15. 책임만 1명 이하 (D/E/N만, 중2 제외) ──
     chief_only = [ni for ni, n in enumerate(nurses)
                   if n.role == "책임만"]
@@ -995,6 +1144,7 @@ def solve_schedule(
                     sum(shifts[(ni, di, si)] for ni in chief_only) <= 1
                 )
 
+    _cp_idx["H15(책임만상한)"] = len(model.proto.constraints)
     # ── H17. 임산부 → 최대 연속 근무 4일 ──
     # ALL_OFF 모두 비근무로 인정
     for ni, nurse in enumerate(nurses):
@@ -1007,9 +1157,18 @@ def solve_schedule(
                     for dd in range(interval + 1) for oi in ALL_OFF) >= 1
             )
 
+    _cp_idx["H17(임산부연속)"] = len(model.proto.constraints)
     # ══════════════════════════════════════════
     # 특수 휴무 갯수 제약 (타입별 정확한 수 강제)
     # ══════════════════════════════════════════
+    from collections import Counter as _Counter
+    _month_day_counts = _Counter(
+        (start_date + timedelta(days=di)).month for di in range(num_days)
+    )
+    _period_months = len(_month_day_counts)
+    _log(f"[생휴] 기간 내 달별 일수: {dict(_month_day_counts)} | 달 수={_period_months} | menstrual_used 현황: "
+         f"{sum(1 for n in nurses if n.menstrual_used)}명 True / {sum(1 for n in nurses if not n.is_male and not n.menstrual_used)}명 False(여성)")
+
     obj_auto_off = []  # 추가 soft bonus (목적함수에 추가)
     for ni, nurse in enumerate(nurses):
         # 각 특수 off 타입별 하드 요청 갯수 계산
@@ -1035,8 +1194,7 @@ def solve_schedule(
             )
 
         # 생휴: 여성 월 1회 (하드 제약), 남자 0
-        # 28일 기간이 2개월에 걸치면 최대 2회, menstrual_used=True면 첫 달은 이미 사용됨
-        _period_months = len({(start_date + timedelta(days=di)).month for di in range(num_days)})
+        # _period_months: 기간 내 달 수, menstrual_used: 이전 근무표에서 시작 달 생휴 사용 여부
         max_menst = max(0, _period_months - (1 if nurse.menstrual_used else 0))
         menst_sum = sum(shifts[(ni, di, _생휴)] for di in range(num_days))
         if nurse.is_male:
@@ -1050,18 +1208,30 @@ def solve_schedule(
 
         # 생휴: 달마다 최대 1회 (같은 달 두 개 방지)
         if not nurse.is_male:
-            _distinct_months = {(start_date + timedelta(days=di)).month for di in range(num_days)}
-            for _month in _distinct_months:
+            for _month, _month_cnt in _month_day_counts.items():
                 _month_days = [di for di in range(num_days)
                                if (start_date + timedelta(days=di)).month == _month]
                 _month_menst = sum(shifts[(ni, di, _생휴)] for di in _month_days)
-                _is_start_month = (start_date + timedelta(days=_month_days[0])).month == start_date.month
+                _is_start_month = _month == start_date.month
                 if nurse.menstrual_used and _is_start_month:
                     model.add(_month_menst == 0)
                 else:
                     model.add(_month_menst <= 1)
 
+    _cp_idx["특수OFF-생휴"] = len(model.proto.constraints)
+    for ni, nurse in enumerate(nurses):
         # 수면: 조건 충족 시 1개 생성 (하드 제약)
+        hard_counts = {}
+        for code, idx in [("생휴", _생휴), ("수면", _수면), ("휴가", _휴가), ("병가", _병가),
+                          ("특휴", _특휴), ("공가", _공가), ("경가", _경가),
+                          ("보수", _보수), ("필수", _필수), ("번표", _번표)]:
+            hard_counts[idx] = sum(
+                1 for r in requests
+                if r.is_hard and r.nurse_id == nurse.id
+                and r.code == code
+                and 1 <= r.day <= num_days
+                and (ni, r.day - 1) not in fixed_off_days
+            )
         hard_sleep = hard_counts[_수면]
         sleep_sum = sum(shifts[(ni, di, _수면)] for di in range(num_days))
         if hard_sleep > 0:
@@ -1106,11 +1276,70 @@ def solve_schedule(
                             >= eff_threshold
                         ).only_enforce_if(shifts[(ni, di, _수면)])
 
+    _cp_idx["특수OFF-수면"] = len(model.proto.constraints)
+
+    # 진단: 특수OFF 하드 요청 현황 출력
+    _special_off_codes = [("생휴", _생휴), ("수면", _수면), ("휴가", _휴가), ("병가", _병가),
+                          ("특휴", _특휴), ("공가", _공가), ("경가", _경가),
+                          ("보수", _보수), ("필수", _필수), ("번표", _번표)]
+    for ni, nurse in enumerate(nurses):
+        nurse_hard = {}
+        for code, idx in _special_off_codes:
+            cnt = sum(
+                1 for r in requests
+                if r.is_hard and r.nurse_id == nurse.id
+                and r.code == code
+                and 1 <= r.day <= num_days
+                and (ni, r.day - 1) not in fixed_off_days
+            )
+            if cnt > 0:
+                nurse_hard[code] = cnt
+        if nurse_hard:
+            _log(f"[특수OFF 하드요청] {nurse.name}: {nurse_hard}")
+
+    for ni, nurse in enumerate(nurses):
+        hard_counts = {}
+        for code, idx in _special_off_codes:
+            hard_counts[idx] = sum(
+                1 for r in requests
+                if r.is_hard and r.nurse_id == nurse.id
+                and r.code == code
+                and 1 <= r.day <= num_days
+                and (ni, r.day - 1) not in fixed_off_days
+            )
+        # 병가 span 내 고정 주휴일은 H10a에서 병가로 강제됨 → 카운트에 추가
+        span = nurse_병가_span[ni]
+        if span is not None:
+            span_s, span_e = span
+            hard_counts[_병가] += sum(
+                1 for di in range(num_days)
+                if (ni, di) in fixed_off_days and span_s <= di <= span_e
+            )
         # 특휴, 공가, 경가, 보수, 필수, 번표, 병가: == hard_request_count (요청 시만)
         for idx in [_특휴, _공가, _경가, _보수, _필수, _번표, _병가]:
             model.add(
                 sum(shifts[(ni, di, idx)] for di in range(num_days))
                 == hard_counts[idx]
+            )
+
+    _cp_idx["특수OFF-기타(==)"] = len(model.proto.constraints)
+    for ni, nurse in enumerate(nurses):
+        hard_counts = {}
+        for code, idx in _special_off_codes:
+            hard_counts[idx] = sum(
+                1 for r in requests
+                if r.is_hard and r.nurse_id == nurse.id
+                and r.code == code
+                and 1 <= r.day <= num_days
+                and (ni, r.day - 1) not in fixed_off_days
+            )
+        # 병가 span 내 고정 주휴일 카운트 추가 (위와 동일)
+        span = nurse_병가_span[ni]
+        if span is not None:
+            span_s, span_e = span
+            hard_counts[_병가] += sum(
+                1 for di in range(num_days)
+                if (ni, di) in fixed_off_days and span_s <= di <= span_e
             )
 
         # 휴가: >= hard_request_count (나머지 여유 off 슬롯을 휴가로 채움)
@@ -1122,6 +1351,7 @@ def solve_schedule(
         # 법휴: 갯수 고정 안 함 (H18 공휴일 제약이 결정)
         # POFF: H19에서 처리
 
+    _cp_idx["H12-H17(등급/역할/임산부)"] = len(model.proto.constraints)
     # ── H18. 공휴일 → 비근무 시 법휴만 허용 ──
     hard_req_days = set()
     for r in requests:
@@ -1178,6 +1408,7 @@ def solve_schedule(
                 work_sum >= interval * shifts[(ni, di, _POFF)]
             )
 
+    _cp_idx["H18-H19(공휴일/임산부POFF)"] = len(model.proto.constraints)
     # ── H20. 휴무 편차 제한 (±2, 주4일제 +4) ──
     # ±2: 수면/생휴 등 특수 휴무로 인한 개인차 수용
     중2_exists = any(n.role == "중2" for n in nurses)
@@ -1263,10 +1494,13 @@ def solve_schedule(
     # ══════════════════════════════════════════
     obj = list(obj_auto_off)  # 생휴/수면 soft bonus 포함
 
-    # ── S1. 희망 요청 반영 (+300) ──
-    # 공정성 페널티(-5~-8)보다 훨씬 높게 설정 → 요청이 거의 항상 반영됨
-    # OFF 요청은 H11이 >= 보장하므로 목적함수 가중치가 실제 날짜 선택에 영향
-    or_groups = {}  # (ni, di) → [shift_index, ...]
+    # ── S1. 희망 요청 반영 (condition/score 기반 가중치) ──
+    # A조건: base 500 + score → 최솟값 약 400 (score 음수 시)
+    # B조건: base 150 + score → 최댓값 250 (score 100 시)
+    # A조건 최솟값 > B조건 최댓값 → A가 score와 무관하게 항상 B보다 우선
+    # 공정성 페널티(-5~-8)보다 훨씬 높으므로 요청이 거의 항상 반영됨
+    or_groups = {}      # (ni, di) → [shift_index, ...]
+    or_weights = {}     # (ni, di) → weight
     for r in requests:
         if r.is_hard or r.is_exclude:
             continue
@@ -1277,32 +1511,45 @@ def solve_schedule(
         if di < 0 or di >= num_days:
             continue
 
+        # A조건: 근무/OFF 모두 soft-high (800 + score*5)
+        # B조건: soft (150 + score*5)
+        # score*5: score 차이를 5배 확대 → 공정성 페널티(~5~25)에 역전 방지
+        if r.condition == 'A':
+            weight = 800 + r.score * 5
+        else:
+            weight = 150 + r.score * 5
+
         # OR 요청은 별도 그룹 처리
         if r.is_or:
             key = (ni, di)
             if key not in or_groups:
                 or_groups[key] = []
+                or_weights[key] = weight
+            else:
+                or_weights[key] = max(or_weights[key], weight)  # 같은 날 OR 중 최고 weight
             if r.code in NAME_TO_IDX:
                 si = NAME_TO_IDX[r.code]
-                if si in ALL_OFF:
-                    or_groups[key].extend(ALL_OFF)  # 휴무 요청 → 어떤 off든 충족
+                if r.code == 'OFF' and si in ALL_OFF:
+                    or_groups[key].extend(ALL_OFF)  # 'OFF' 요청만 어떤 off든 충족
                 else:
                     or_groups[key].append(si)
             continue
 
         if r.code in NAME_TO_IDX:
             si = NAME_TO_IDX[r.code]
-            if si in ALL_OFF:
-                # 휴무 요청 → 어떤 off 타입이든 쉬면 충족
-                obj.append(300 * sum(shifts[(ni, di, oi)] for oi in ALL_OFF))
+            if r.code == 'OFF' and si in ALL_OFF:
+                # 'OFF' 요청만 → 어떤 off 타입이든 쉬면 충족
+                obj.append(weight * sum(shifts[(ni, di, oi)] for oi in ALL_OFF))
             else:
-                obj.append(300 * shifts[(ni, di, si)])
+                # 근무 또는 구체적 휴무(휴가/수면/생휴 등) → 정확히 그 타입이어야 충족
+                obj.append(weight * shifts[(ni, di, si)])
 
-    # ── S1a. OR 그룹 반영 (+300) ──
+    # ── S1a. OR 그룹 반영 (condition/score 가중치) ──
     # 하루에 shift는 1개만 → sum 최대 1 → 보상 1회
     for (ni, di), si_list in or_groups.items():
         unique_si = list(set(si_list))
-        obj.append(300 * sum(shifts[(ni, di, si)] for si in unique_si))
+        w = or_weights.get((ni, di), 650)  # 기본값: B조건 score 100 기준 (150 + 100*5)
+        obj.append(w * sum(shifts[(ni, di, si)] for si in unique_si))
 
     # ── S1b. 하드 휴무 사이 빈날 → OFF/휴무 배치 선호 (+250) ──
     # 예: 5일=휴가, 7일=휴가인데 6일 요청 없음 → 6일에 OFF 배치 유도
@@ -1364,6 +1611,15 @@ def solve_schedule(
         model.add(diff == mx - mn)
         obj.append(-8 * diff)
 
+    # ── S8. 월 N 초과 억제 (-300/개) ──
+    # max_N_per_month(기본 6) 초과 시 강한 소프트 페널티
+    # 하드 제약이 아니므로 인원 부족 시 초과 허용, 단 최대한 억제
+    for ni in range(num_nurses):
+        n_cnt = shift_counts[(ni, "N")]
+        excess = model.new_int_var(0, num_days, f"N_excess_{ni}")
+        model.add(excess >= n_cnt - rules.max_N_per_month)
+        obj.append(-300 * excess)
+
     # ── S4. 주말 균등 배분 (-8) ──
     weekend_indices = [di for di in range(num_days) if weekday_of(di) >= 5]
     if weekend_indices and num_nurses >= 2:
@@ -1403,6 +1659,18 @@ def solve_schedule(
             model.add_min_equality(pair, [shifts[(ni, di, _N)], shifts[(ni, di + 1, _N)]])
             obj.append(20 * pair)
 
+    # ── S7. 연속 휴무 보상 (+15/쌍) ──
+    # 연속된 휴무 쌍마다 보너스 → 산발적 휴무(D-OFF-D-OFF)보다 연속 휴무(D-D-OFF-OFF) 유도
+    for ni in range(num_nurses):
+        for di in range(num_days - 1):
+            off_di  = sum(shifts[(ni, di,     oi)] for oi in ALL_OFF)
+            off_di1 = sum(shifts[(ni, di + 1, oi)] for oi in ALL_OFF)
+            both_off = model.new_bool_var(f"both_off_{ni}_{di}")
+            model.add(both_off <= off_di)
+            model.add(both_off <= off_di1)
+            obj.append(15 * both_off)
+
+
     # ── 목적함수 설정 ──
     if obj:
         model.maximize(sum(obj))
@@ -1439,7 +1707,9 @@ def solve_schedule(
         # 후처리 (현재 솔버가 모든 휴무 타입을 직접 관리하므로 최소한)
         _post_process(schedule, nurses, rules)
     else:
-        _log("해를 찾을 수 없습니다 (Infeasible). 인원수 설정이나 휴무 조건을 확인하세요.")
+        _log("해를 찾을 수 없습니다 (Infeasible). 원인 진단 시작...")
+        _cp_idx["H20(휴무편차)"] = len(model.proto.constraints)
+        _diagnose_infeasible(nurses, requests, rules, start_date, num_days, shifts, model, _cp_idx)
     return schedule
 
 

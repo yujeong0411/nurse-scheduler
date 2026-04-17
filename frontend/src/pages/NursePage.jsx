@@ -89,6 +89,8 @@ export default function NursePage() {
   const [nurse, setNurse] = useState(null)
   const [shifts, setShifts] = useState({})
   const [notes, setNotes] = useState({})
+  const [conditions, setConditions] = useState({})  // { day: 'A' | 'B' }
+  const [myScore, setMyScore] = useState(100)  // 내부 상태 유지 (저장에 사용)
   const [picker, setPicker] = useState(null)
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
@@ -160,15 +162,21 @@ export default function NursePage() {
         setNurse(meRes.data)
         if (s.period_id) {
           setPeriodId(s.period_id)
-          const reqRes = await requestsApi.getMine(s.period_id)
-          const map = {}, noteMap = {}
+          const [reqRes, scoreRes] = await Promise.all([
+            requestsApi.getMine(s.period_id),
+            requestsApi.getScore(s.period_id, nurseId).catch(() => ({ data: { score: 100 } })),
+          ])
+          const map = {}, noteMap = {}, condMap = {}
           ;(reqRes.data || []).forEach(it => {
             if (!map[it.day]) map[it.day] = []
             map[it.day].push(it.code)
             if (it.note) noteMap[it.day] = it.note
+            if (it.condition) condMap[it.day] = it.condition
           })
           setShifts(map)
           setNotes(noteMap)
+          setConditions(condMap)
+          setMyScore(scoreRes.data?.score ?? 100)
         }
 
         // 공휴일 이름 매핑 (기간이 두 달에 걸칠 수 있으므로 두 달 모두 조회)
@@ -202,7 +210,7 @@ export default function NursePage() {
     })()
   }, [])
 
-  const setShift = useCallback((day, codes, note = '') => {
+  const setShift = useCallback((day, codes, note = '', condition = 'B') => {
     setShifts(prev => {
       const next = { ...prev }
       if (codes && codes.length > 0) next[day] = codes; else delete next[day]
@@ -211,6 +219,11 @@ export default function NursePage() {
     setNotes(prev => {
       const next = { ...prev }
       if (codes && codes.length > 0 && note) next[day] = note; else delete next[day]
+      return next
+    })
+    setConditions(prev => {
+      const next = { ...prev }
+      if (codes && codes.length > 0) next[day] = condition; else delete next[day]
       return next
     })
     setSaved(false)
@@ -224,8 +237,9 @@ export default function NursePage() {
       const items = []
       for (const [day, codes] of Object.entries(shifts)) {
         const isOr = codes.length > 1
+        const condition = conditions[+day] || 'B'
         codes.forEach(code => items.push({
-          day: parseInt(day), code, is_or: isOr, note: notes[+day] || ''
+          day: parseInt(day), code, is_or: isOr, note: notes[+day] || '', condition
         }))
       }
       await requestsApi.upsert(periodId, nurseId, items)
@@ -519,9 +533,15 @@ export default function NursePage() {
                     )}
                     {/* 근무 뱃지 or + 버튼 */}
                     {codes.length > 0 ? (
-                      <span className="mt-1.5 flex-1 w-full flex items-center justify-center rounded-xl font-black"
+                      <span className="mt-1.5 flex-1 w-full flex flex-col items-center justify-center rounded-xl font-black relative"
                         style={{ fontSize: s.length > 5 ? 10 : s.endsWith('제외') ? 11 : 14, background: st.bg, color: st.fg, border: `1.5px solid ${st.border}`, minHeight: 36 }}>
                         {s}
+                        {conditions[day] && (
+                          <span className="absolute -top-1.5 -left-1.5 text-white rounded-full flex items-center justify-center font-black"
+                            style={{ background: conditions[day] === 'A' ? '#4338CA' : '#94A3B8', width: 14, height: 14, fontSize: 8 }}>
+                            {conditions[day]}
+                          </span>
+                        )}
                       </span>
                     ) : (
                       <span className="mt-1.5 flex-1 w-full flex items-center justify-center rounded-xl font-bold"
@@ -582,7 +602,9 @@ export default function NursePage() {
           rules={effectiveRules}
           startDate={startDate}
           notes={notes}
-          onSelect={(codes, note) => { setShift(picker.day, codes, note); setPicker(null) }}
+          conditions={conditions}
+          aLeft={3 - Object.values(conditions).filter(c => c === 'A').length}
+          onSelect={(codes, note, condition) => { setShift(picker.day, codes, note, condition); setPicker(null) }}
           onClose={() => setPicker(null)}
         />
       )}

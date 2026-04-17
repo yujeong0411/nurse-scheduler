@@ -77,14 +77,24 @@ export const holidaysApi = {
 
 // ── 근무신청 ──────────────────────────────────────
 export const requestsApi = {
-  getAll:    (period_id) => api.get(`/requests/${period_id}`),
-  getMine:   (period_id) => api.get(`/requests/${period_id}/me`),
-  getStatus: (period_id) => api.get(`/requests/${period_id}/status`),
-  upsert:    (period_id, nurse_id, items) =>
+  getAll:         (period_id) => api.get(`/requests/${period_id}`),
+  getMine:        (period_id) => api.get(`/requests/${period_id}/me`),
+  getStatus:      (period_id) => api.get(`/requests/${period_id}/status`),
+  upsert:         (period_id, nurse_id, items) =>
     api.put(`/requests/${period_id}/${nurse_id}`, { items }),
-  exportXlsx:(period_id) =>
+  getScore:       (period_id, nurse_id) =>
+    api.get(`/requests/${period_id}/score/${nurse_id}`),
+  getAllScores:    (period_id) =>
+    api.get(`/requests/${period_id}/scores`),
+  resetScores:    (period_id) =>
+    api.post(`/requests/${period_id}/reset-scores`),
+  recalcScores:   (period_id) =>
+    api.post(`/requests/${period_id}/recalc-scores`),
+  getAssignmentLog: (period_id, day, code) =>
+    api.get(`/requests/${period_id}/assignment-log/${day}/${encodeURIComponent(code)}`),
+  exportXlsx:     (period_id) =>
     api.get(`/requests/${period_id}/export`, { responseType: 'blob' }),
-  importXlsx:(period_id, file) => {
+  importXlsx:     (period_id, file) => {
     const fd = new FormData(); fd.append('file', file)
     return api.post(`/requests/${period_id}/import`, fd)
   },
@@ -92,7 +102,8 @@ export const requestsApi = {
 
 // ── 근무표 ────────────────────────────────────────
 export const scheduleApi = {
-  generate:      (period_id, timeout_seconds = 180) =>
+  checkConflicts: (period_id) => api.get(`/schedule/check-conflicts/${period_id}`),
+  generate:      (period_id, timeout_seconds = 300) =>
     api.post('/schedule/generate', { period_id, timeout_seconds }),
   jobStatus:          (job_id) => api.get(`/schedule/job/${job_id}`),
   latestJobByPeriod:  (period_id) => api.get(`/schedule/job/period/${period_id}`),

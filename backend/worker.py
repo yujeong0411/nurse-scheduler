@@ -95,6 +95,9 @@ async def run_solver_job(job_id: str, period_id: str, db) -> None:
         }).execute()
         schedule_id = sched.data[0]["id"]
 
+        # assignment_log 생성 (우선순위 신청이 있는 날짜-코드 단위)
+        _save_assignment_log(db, period_id, requests_data, result)
+
         db.table("solver_jobs").update({
             "status": "done",
             "finished_at": done_iso,
@@ -129,17 +132,38 @@ def _convert_nurses(nurses_data: list[dict]) -> list[dict]:
 
 
 def _convert_requests(raw_requests: list[dict], nurses: list[dict]) -> list[dict]:
-    """DB requests → engine Request.from_dict 형식 (nurse_id UUID 그대로 유지)"""
+    """DB requests → engine Request.from_dict 형식 (nurse_id UUID 그대로 유지)
+
+    score는 DB 저장값 대신 현재 신청 데이터에서 직접 재계산.
+    엑셀 임포트 등으로 score 컬럼이 100 고정이어도 실제 신청 수 기반으로 올바른 값 사용.
+    """
+    _SKIP = {"병가", "법휴", "필수"}
     nurse_ids = {n["id"] for n in nurses}
+
+    # 간호사별 점수 재계산: 100 - (A신청×1 + B신청×3), 제외 코드 제외
+    deductions: dict[str, int] = {}
+    for r in raw_requests:
+        if r["nurse_id"] not in nurse_ids:
+            continue
+        if r.get("code") in _SKIP:
+            continue
+        cond = r.get("condition") or "B"
+        nid = r["nurse_id"]
+        deductions[nid] = deductions.get(nid, 0) + (1 if cond == "A" else 3)
+
+    computed_scores: dict[str, int] = {nid: 100 - d for nid, d in deductions.items()}
+
     result = []
     for r in raw_requests:
         if r["nurse_id"] not in nurse_ids:
             continue
         result.append({
-            "nurse_id": r["nurse_id"],  # UUID 그대로 — solver의 nurse.id와 일치
+            "nurse_id": r["nurse_id"],
             "day": r["day"],
             "code": r["code"],
             "is_or": r.get("is_or", False),
+            "condition": r.get("condition") or "B",
+            "score": computed_scores.get(r["nurse_id"], 100),  # 재계산된 점수 사용
         })
     return result
 
@@ -178,3 +202,93 @@ def _convert_rules(raw: dict) -> dict:
         "sleep_N_bimonthly":    raw.get("sleep_n_bimonthly", 11),
         "public_holidays":      _parse_holidays(raw.get("public_holidays", [])),
     }
+
+
+def _save_assignment_log(db, period_id: str, requests_data: list[dict], result: dict) -> None:
+    """solver 결과와 신청 목록을 비교해 assignment_log 저장
+
+    (day, code) 단위로 신청자를 우선순위 정렬 후
+    solver 배정 결과와 대조해 is_assigned, rank, is_random 기록
+    """
+    import random as _random
+    from collections import defaultdict
+
+    # nurse_id+day → 해당 날 신청한 모든 코드 목록 (requested_codes 표시용)
+    nurse_day_codes: dict[tuple, list] = defaultdict(list)
+    for r in requests_data:
+        if r["code"] not in {"병가", "법휴", "필수"}:
+            nurse_day_codes[(r["nurse_id"], r["day"])].append(r["code"])
+
+    # (day, code) → [request_dict, ...]
+    groups: dict[tuple, list] = defaultdict(list)
+    for r in requests_data:
+        # 우선순위 적용 대상: 병가/법휴/필수 제외
+        if r["code"] in {"병가", "법휴", "필수"}:
+            continue
+        groups[(r["day"], r["code"])].append(r)
+
+    # 신청자가 2명 이상인 그룹만 로그 생성 (경쟁 없으면 불필요)
+    log_rows = []
+    for (day, code), applicants in groups.items():
+        if len(applicants) < 2:
+            continue
+
+        # 우선순위 정렬: A > B → score 높은 순 → 동점 랜덤
+        max_score = max(a["score"] for a in applicants)
+        for a in applicants:
+            a["_rand"] = _random.random()
+
+        sorted_applicants = sorted(
+            applicants,
+            key=lambda a: (
+                0 if a["condition"] == "A" else 1,  # A 먼저
+                -a["score"],                         # 점수 높은 순
+                a["_rand"],                          # 동점 랜덤
+            )
+        )
+
+        # 동점(같은 condition, 같은 score) 여부 확인
+        def _is_random_used(lst):
+            for i in range(len(lst) - 1):
+                a, b = lst[i], lst[i + 1]
+                if a["condition"] == b["condition"] and a["score"] == b["score"]:
+                    return True
+            return False
+
+        is_random = _is_random_used(sorted_applicants)
+
+        # solver 배정 결과에서 이 (day, code) 배정 여부 확인
+        _ALL_OFF = {'주', 'OFF', '법휴', '수면', '생휴', '휴가', '병가', '특휴', '공가', '경가', '보수', 'POFF', '필수', '번표'}
+        code_is_off = code in _ALL_OFF
+        day_str = str(day)
+        for rank, applicant in enumerate(sorted_applicants, start=1):
+            nid = applicant["nurse_id"]
+            assigned_shift = result.get(nid, {}).get(day_str, "")
+            if code_is_off:
+                is_assigned = assigned_shift in _ALL_OFF
+            else:
+                is_assigned = (assigned_shift == code)
+            all_codes = nurse_day_codes.get((nid, day), [code])
+            requested_codes = "/".join(dict.fromkeys(all_codes))  # 중복 제거, 순서 유지
+            log_rows.append({
+                "period_id": period_id,
+                "day": day,
+                "code": code,
+                "requested_codes": requested_codes,
+                "nurse_id": nid,
+                "condition": applicant["condition"],
+                "score": applicant["score"],
+                "rank": rank,
+                "is_random": is_random,
+                "is_assigned": is_assigned,
+            })
+
+    if not log_rows:
+        return
+
+    # 기존 로그 삭제 후 재삽입 (재생성 시 중복 방지)
+    try:
+        db.table("assignment_log").delete().eq("period_id", period_id).execute()
+        db.table("assignment_log").insert(log_rows).execute()
+    except Exception:
+        pass  # 로그 실패는 근무표 생성에 영향 없음

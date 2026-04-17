@@ -5,12 +5,90 @@ import NameFilter from '../../components/NameFilter'
 
 const OFF_SET = new Set(['주', 'OFF', 'POFF', '법휴', '수면', '생휴', '휴가', '특휴', '공가', '경가', '보수', '필수', '번표', '병가'])
 
+const SHIFT_LEVEL = { 'D':1, 'D9':1, 'D1':1, '중1':2, '중2':2, 'E':3, 'N':4 }
+
+function inferFailureReasons(day, requestedCode, assignedShift, nurseId, scheduleData, nurses) {
+  const reasons = []
+  const get = (nid, d) => scheduleData[nid]?.[d] ?? scheduleData[nid]?.[String(d)]
+
+  const prevShift  = get(nurseId, day - 1)
+  const prev2Shift = get(nurseId, day - 2)
+  const reqLv  = SHIFT_LEVEL[requestedCode]
+  const prevLv = SHIFT_LEVEL[prevShift]
+
+  // ── 역순 금지 ──
+  if (reqLv && prevLv && prevLv > reqLv) {
+    reasons.push(`${day - 1}일이 ${prevShift} 근무라 ${requestedCode}는 역순 배정 금지 규칙에 걸립니다.`)
+  }
+
+  // ── N 후 D계열 최소 2일 휴무 (H3a) ──
+  if (prevShift === 'N' && reqLv != null && reqLv <= 2) {
+    reasons.push(`${day - 1}일 N 근무 후에는 D/중간계열 전에 최소 2일 휴무가 필요합니다.`)
+  }
+  if (prev2Shift === 'N' && prevShift && OFF_SET.has(prevShift) && reqLv != null && reqLv <= 2) {
+    reasons.push(`${day - 2}일 N → ${day - 1}일 휴무 패턴 후 D/중간계열은 배정 불가입니다 (N 후 2일 휴무 규칙).`)
+  }
+
+  // ── 연속 근무 한도 ──
+  let consec = 0
+  for (let d = day - 1; d >= Math.max(1, day - 5); d--) {
+    if (WORK_SET.has(get(nurseId, d))) consec++
+    else break
+  }
+  if (consec >= 4) {
+    reasons.push(`${day - consec}일부터 ${consec}일 연속 근무 중으로, 최대 연속 근무(5일) 한도에 가깝습니다.`)
+  }
+
+  // ── 신청 근무가 OFF인데 근무 배정된 경우: 해당 날 인력 부족 ──
+  if (OFF_SET.has(requestedCode) && assignedShift && WORK_SET.has(assignedShift)) {
+    const others = nurses.filter(n => n.id !== nurseId && get(n.id, day) === assignedShift).map(n => n.name)
+    const total = others.length + 1
+    const nameStr = others.slice(0, 3).join(', ') + (others.length > 3 ? ` 외 ${others.length - 3}명` : '')
+    reasons.push(
+      `해당 날 ${assignedShift} 최소 인원(${total}명) 충족을 위해 배정됐습니다.` +
+      (others.length > 0 ? ` (같은 날 ${assignedShift}: ${nameStr})` : '')
+    )
+  }
+
+  // ── 신청 근무가 있었는데 다른 근무가 배정된 경우: 정원 초과 ──
+  if (WORK_SET.has(requestedCode) && assignedShift !== requestedCode) {
+    const onRequested = nurses.filter(n => get(n.id, day) === requestedCode).map(n => n.name)
+    if (onRequested.length > 0) {
+      const nameStr = onRequested.slice(0, 3).join(', ') + (onRequested.length > 3 ? ` 외 ${onRequested.length - 3}명` : '')
+      reasons.push(
+        `해당 날 ${requestedCode}는 ${onRequested.length}명이 이미 배정되어 정원이 찼습니다. (${nameStr})`
+      )
+    }
+  }
+
+  return reasons
+}
+
+// 해당 날 특정 근무의 신청자 목록 반환
+function getShiftRequestors(day, code, reqMap, nurses) {
+  const nurseMap = Object.fromEntries(nurses.map(n => [n.id, n]))
+  return Object.entries(reqMap)
+    .filter(([nid, days]) => days[day]?.codes?.includes(code))
+    .map(([nid, days]) => ({
+      nurseId: nid,
+      name: nurseMap[nid]?.name ?? nid,
+      condition: days[day].condition ?? 'B',
+      score: days[day].score ?? 100,
+    }))
+}
+
+// 해당 날 특정 근무에 배정된 간호사 수
+function getAssignedCount(day, code, scheduleData) {
+  if (!scheduleData) return 0
+  return Object.values(scheduleData).filter(days => (days[day] ?? days[String(day)]) === code).length
+}
+
 function isReqMatch(shift, reqCodes, isOr) {
   if (!shift || !reqCodes?.length) return false
   if (reqCodes.some(c => c.includes('제외'))) return false
   for (const c of reqCodes) {
     if (c === shift) return true
-    if (OFF_SET.has(c) && OFF_SET.has(shift)) return true
+    if (c === 'OFF' && OFF_SET.has(shift)) return true  // 'OFF' 신청만 어떤 휴무든 매칭
   }
   return false
 }
@@ -144,15 +222,18 @@ export default function ScheduleResultTab({ period }) {
   const [evalData, setEvalData] = useState(null)
   const [showStats, setShowStats] = useState(false)
   const [sleepNMonthly, setSleepNMonthly] = useState(7)
+  const [dailyQuota, setDailyQuota] = useState({ D: 7, E: 8, N: 7 })
   const [generating, setGenerating] = useState(false)
   const [loading, setLoading] = useState(true)
   const [editCell, setEditCell] = useState(null)
+  const [logPopup, setLogPopup] = useState(null)   // { day, code, x, y, entries[] }
   const [exporting, setExporting] = useState(false)
   const [msg, setMsg] = useState(null)
   const [selectedNames, setSelectedNames] = useState(null)
   const [highlightedId, setHighlightedId] = useState(null)
   const [dateFilter, setDateFilter] = useState(null)   // null | { day, codes: Set }
   const [datePicker, setDatePicker] = useState(null)   // null | { day, x, y }
+  const [conflictWarnings, setConflictWarnings] = useState(null)  // null | warning[] (생성 전 충돌경고)
   const pollRef = useRef(null)
   const datePickerRef = useRef(null)
 
@@ -178,7 +259,9 @@ export default function ScheduleResultTab({ period }) {
           rulesApi.get(),
         ])
         if (rulesRes.status === 'fulfilled') {
-          setSleepNMonthly(rulesRes.value.data.sleep_n_monthly ?? 7)
+          const r = rulesRes.value.data
+          setSleepNMonthly(r.sleep_n_monthly ?? 7)
+          setDailyQuota({ D: r.daily_d ?? 7, E: r.daily_e ?? 8, N: r.daily_n ?? 7 })
         }
         if (schedRes.status === 'fulfilled') {
           const d = schedRes.value.data
@@ -192,7 +275,7 @@ export default function ScheduleResultTab({ period }) {
             const nid = r.nurse_id
             const day = r.day
             if (!map[nid]) map[nid] = {}
-            if (!map[nid][day]) map[nid][day] = { codes: [], is_or: r.is_or }
+            if (!map[nid][day]) map[nid][day] = { codes: [], is_or: r.is_or, condition: r.condition ?? 'B', score: r.score ?? 100 }
             map[nid][day].codes.push(r.code)
           }
           setReqMap(map)
@@ -242,6 +325,13 @@ export default function ScheduleResultTab({ period }) {
     return () => document.removeEventListener('mousedown', handler)
   }, [datePicker])
 
+  useEffect(() => {
+    if (!logPopup) return
+    const handler = (e) => { setLogPopup(null) }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [logPopup])
+
   const handleDateHeaderClick = (e, d) => {
     if (datePicker?.day === d) { setDatePicker(null); return }
     const rect = e.currentTarget.getBoundingClientRect()
@@ -273,7 +363,20 @@ export default function ScheduleResultTab({ period }) {
 
   const handleGenerate = async () => {
     if (!settings?.period_id) { showMsg('시작일을 먼저 설정해주세요.', false); return }
+    // 충돌 사전 체크
+    try {
+      const chkRes = await scheduleApi.checkConflicts(settings.period_id)
+      if (chkRes.data.warnings?.length) {
+        setConflictWarnings(chkRes.data.warnings)
+        return  // 경고 모달로 분기
+      }
+    } catch { /* 체크 실패 시 그냥 진행 */ }
+    await _doGenerate()
+  }
+
+  const _doGenerate = async () => {
     if (!window.confirm('근무표를 생성하시겠습니까? 기존 근무표가 있으면 덮어씌워집니다.')) return
+    setConflictWarnings(null)
     setGenerating(true); setJobStatus('pending'); setScheduleData(null); setEvalData(null)
     try {
       const res = await scheduleApi.generate(settings.period_id)
@@ -414,7 +517,7 @@ export default function ScheduleResultTab({ period }) {
               <div className="bg-blue-500 h-1 rounded-full animate-pulse" style={{ width: jobStatus === 'running' ? '65%' : '20%' }} />
             </div>
           </div>
-          <span className="text-xs text-blue-500 flex-shrink-0">최대 180초</span>
+          <span className="text-xs text-blue-500 flex-shrink-0">최대 300초</span>
         </div>
       )}
 
@@ -547,7 +650,27 @@ export default function ScheduleResultTab({ period }) {
                       const baseBg = hasReq ? '#fef9c3' : isSun ? '#fef2f2' : isSat ? '#eff6ff' : '#ffffff'
                       return (
                         <td key={d}
-                          onClick={e => { if (!isWeeklyOff && scheduleId) { setHighlightedId(nurse.id); setEditCell({ nurseId: nurse.id, nurseObj: nurse, day: d, rect: e.currentTarget.getBoundingClientRect() }) } }}
+                          onClick={e => {
+                            if (isWeeklyOff || !scheduleId) return
+                            setHighlightedId(nurse.id)
+                            const cellRect = e.currentTarget.getBoundingClientRect()
+
+                            if (unmatched) {
+                              // 미배정 셀: 로그 팝업만 표시 (편집은 팝업 내 버튼으로)
+                              setEditCell(null)
+                              const logCode = req.codes.find(c => !c.includes('제외'))
+                              if (logCode && period?.period_id) {
+                                setLogPopup({ day: d, code: logCode, assignedShift: s, unmatched: true, nurseId: nurse.id, nurseObj: nurse, x: cellRect.left, y: cellRect.bottom, cellTop: cellRect.top, entries: null })
+                                requestsApi.getAssignmentLog(period.period_id, d, logCode)
+                                  .then(res => setLogPopup(prev => prev ? { ...prev, entries: res.data } : null))
+                                  .catch(() => setLogPopup(prev => prev ? { ...prev, entries: [] } : null))
+                              }
+                            } else {
+                              // 일반 셀: 편집 모달 표시
+                              setLogPopup(null)
+                              setEditCell({ nurseId: nurse.id, nurseObj: nurse, day: d, rect: cellRect })
+                            }
+                          }}
                           className={`text-center border-b border-r border-slate-200 transition-colors ${isWeeklyOff ? 'cursor-default' : 'cursor-pointer'}`}
                           style={{
                             background: isActive ? '#dbeafe' : baseBg,
@@ -707,6 +830,46 @@ export default function ScheduleResultTab({ period }) {
         )
       })()}
 
+      {conflictWarnings && (
+        <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/40">
+          <div className="bg-white rounded-2xl shadow-2xl border border-amber-200 w-full max-w-md mx-4">
+            <div className="px-5 pt-5 pb-3">
+              <div className="flex items-center gap-2 mb-3">
+                <span className="text-amber-500 text-xl">⚠</span>
+                <h3 className="font-bold text-slate-800 text-base">A조건 OFF 충돌 가능성</h3>
+              </div>
+              <p className="text-xs text-slate-500 mb-3">
+                아래 날짜에서 A-OFF 신청을 반영하면 최소 인력이 부족할 수 있습니다.
+                솔버가 자동으로 조정하지만, 해당 신청이 무시될 수 있습니다.
+              </p>
+              <div className="space-y-2 max-h-52 overflow-y-auto">
+                {conflictWarnings.map((w, i) => (
+                  <div key={i} className="rounded-lg bg-amber-50 border border-amber-100 px-3 py-2 text-xs">
+                    <div className="font-semibold text-amber-800">{w.date_str}</div>
+                    <div className="text-slate-600 mt-0.5">
+                      A-OFF 신청: <span className="font-medium">{w.a_off_nurses.join(', ')}</span>
+                    </div>
+                    <div className="text-slate-500 mt-0.5">
+                      가용 {w.available}명 / 최소 필요 {w.required}명
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+            <div className="px-5 pb-5 pt-2 flex gap-2 justify-end">
+              <button
+                onClick={() => setConflictWarnings(null)}
+                className="px-4 py-2 text-xs font-medium text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors"
+              >취소</button>
+              <button
+                onClick={_doGenerate}
+                className="px-4 py-2 text-xs font-semibold text-white bg-amber-500 hover:bg-amber-600 rounded-lg transition-colors"
+              >이대로 생성</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {editCell && (
         <CellEditModal
           nurse={editCell.nurseObj}
@@ -718,6 +881,164 @@ export default function ScheduleResultTab({ period }) {
           onClose={() => setEditCell(null)}
         />
       )}
+
+      {logPopup && (() => {
+        const popW = 240
+        const lpLeft = Math.max(4, Math.min(logPopup.x, window.innerWidth - popW - 4))
+        const cellBottom = logPopup.y
+        const cellTop = logPopup.cellTop ?? cellBottom - 22
+        const spaceBelow = window.innerHeight - cellBottom - 4
+        const spaceAbove = cellTop - 4
+        const showAbove = spaceBelow < 220 && spaceAbove > spaceBelow
+        const maxH = Math.min(320, Math.max(80, showAbove ? spaceAbove : spaceBelow))
+        const posStyle = showAbove
+          ? { bottom: window.innerHeight - cellTop + 4, maxHeight: maxH }
+          : { top: cellBottom + 4, maxHeight: maxH }
+        return (
+        <div
+          className="fixed z-[60] bg-white rounded-xl shadow-xl border border-slate-200 overflow-hidden"
+          style={{ left: lpLeft, width: popW, ...posStyle }}
+          onMouseDown={e => e.stopPropagation()}
+          onClick={e => e.stopPropagation()}
+        >
+          <div className="px-3 py-2 border-b border-slate-100 flex items-center justify-between bg-slate-50">
+            <span className="text-xs font-bold text-slate-700">
+              {startDate ? `${mmdd(getDate(startDate, logPopup.day))} (${WD[getWd(startDate, logPopup.day)]})` : `${logPopup.day}일`}
+              {' '}<span style={{ color: logPopup.code === 'N' ? '#B91C1C' : '#374151' }}>{logPopup.code}</span>
+              {' '}<span className="font-normal text-slate-400">{logPopup.unmatched ? '— 미배정 사유' : '— 배정 현황'}</span>
+            </span>
+            <button onClick={() => setLogPopup(null)} className="text-slate-400 hover:text-slate-600 text-base leading-none">×</button>
+          </div>
+          <div className="overflow-y-auto" style={{ maxHeight: 240 }}>
+            {logPopup.entries === null ? (
+              <p className="text-xs text-slate-400 text-center py-4">로딩 중...</p>
+            ) : logPopup.entries.length === 0 ? (
+              // ── 경쟁자 없는 미배정: 사실 기반 분석 ──
+              <div className="px-3 py-3 space-y-2">
+                {logPopup.assignedShift && (
+                  <div className="flex items-center gap-2 p-2 rounded-lg bg-slate-50 border border-slate-200">
+                    <span className="text-[10px] text-slate-500">신청</span>
+                    <span className="font-bold text-xs" style={{ color: logPopup.code === 'N' ? '#B91C1C' : '#374151' }}>{logPopup.code}</span>
+                    <span className="text-slate-300">→</span>
+                    <span className="text-[10px] text-slate-500">배정</span>
+                    <span className="font-bold text-xs" style={{ color: logPopup.assignedShift === 'N' ? '#B91C1C' : '#374151' }}>{logPopup.assignedShift}</span>
+                  </div>
+                )}
+                {(() => {
+                  const hardReasons = inferFailureReasons(
+                    logPopup.day, logPopup.code, logPopup.assignedShift,
+                    logPopup.nurseId, scheduleData, nurses
+                  )
+                  const assigned = logPopup.assignedShift
+                  const quota = dailyQuota[assigned] ?? null
+                  const assignedCount = assigned ? getAssignedCount(logPopup.day, assigned, scheduleData) : 0
+                  const requestors = assigned ? getShiftRequestors(logPopup.day, assigned, reqMap, nurses) : []
+                  const autoCount = quota != null ? Math.max(0, assignedCount - requestors.length) : null
+                  const reqCodeRequestors = getShiftRequestors(logPopup.day, logPopup.code, reqMap, nurses)
+
+                  return (
+                    <div className="space-y-2">
+                      {hardReasons.length > 0 && (
+                        <ul className="space-y-1">
+                          {hardReasons.map((r, i) => (
+                            <li key={i} className="flex gap-1.5 text-[10px] text-slate-500 leading-relaxed">
+                              <span className="text-slate-300 flex-shrink-0 mt-0.5">•</span>
+                              <span>{r}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+                      {assigned && WORK_SET.has(assigned) && quota != null && (
+                        <div className="rounded-lg bg-amber-50 border border-amber-100 px-2.5 py-2 space-y-1">
+                          <p className="text-[10px] font-bold text-amber-700">{assigned} 인원 현황 (이 날)</p>
+                          <div className="flex items-center gap-1.5 text-[10px] text-slate-600">
+                            <span className="text-slate-400">필요</span>
+                            <span className="font-bold">{quota}명</span>
+                            <span className="text-slate-300">|</span>
+                            <span className="text-slate-400">신청</span>
+                            <span className="font-bold">{requestors.length}명</span>
+                            {autoCount > 0 && <>
+                              <span className="text-slate-300">|</span>
+                              <span className="text-slate-400">자동배정</span>
+                              <span className="font-bold text-amber-600">{autoCount}명</span>
+                            </>}
+                          </div>
+                          {autoCount > 0 && (
+                            <p className="text-[10px] text-slate-500 leading-relaxed">
+                              {assigned} 인원 {quota}명 중 {autoCount}명은 신청 없이 자동배정됐습니다.
+                            </p>
+                          )}
+                        </div>
+                      )}
+                      {reqCodeRequestors.length === 1 && (
+                        <p className="text-[10px] text-slate-400 leading-relaxed">
+                          {logPopup.code} 신청자는 당신 1명이었으나 {assigned ? `${assigned} 인원 충원으로 인해 배정되지 않았습니다.` : '근무 제약으로 배정 불가했습니다.'}
+                        </p>
+                      )}
+                      {!hardReasons.length && !WORK_SET.has(assigned ?? '') && (
+                        <p className="text-[10px] text-slate-400 leading-relaxed">
+                          근무 제약(연속근무·역순금지·월N한도 등) 충돌로 배정 불가했습니다.
+                        </p>
+                      )}
+                    </div>
+                  )
+                })()}
+              </div>
+            ) : (
+              // ── 경쟁자 있는 경우: 신청자 순위 + 자동배정 수 ──
+              <div>
+                {logPopup.entries.map((e) => {
+                  const codeLabel = e.requested_codes || e.code || logPopup.code
+                  return (
+                  <div key={e.nurse_id} className="flex items-center gap-2 px-3 py-1.5 hover:bg-slate-50 border-b border-slate-50 last:border-0">
+                    <span
+                      className="flex-shrink-0 w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-black text-white"
+                      style={{ background: e.is_assigned ? '#22c55e' : '#cbd5e1' }}>
+                      {e.rank}
+                    </span>
+                    <span className="flex-1 text-xs font-semibold text-slate-800 truncate">{e.name}</span>
+                    <span className="text-[10px] text-slate-500 flex-shrink-0" title="신청 코드">{codeLabel}</span>
+                    <span
+                      className="text-[10px] font-bold px-1.5 py-0.5 rounded-md"
+                      style={{ background: e.condition === 'A' ? '#EDE9FE' : '#F1F5F9', color: e.condition === 'A' ? '#7C3AED' : '#64748B' }}>
+                      {e.condition}
+                    </span>
+                    <span className="text-[10px] text-slate-400 flex-shrink-0">{e.score}점</span>
+                    {e.is_random && <span className="text-[10px]" title="동점 랜덤">🎲</span>}
+                    {e.is_assigned && <span className="text-green-500 text-xs font-bold flex-shrink-0">✓</span>}
+                  </div>
+                  )
+                })}
+                {(() => {
+                  const quota = dailyQuota[logPopup.code] ?? null
+                  const assignedCount = getAssignedCount(logPopup.day, logPopup.code, scheduleData)
+                  const autoCount = quota != null ? Math.max(0, assignedCount - logPopup.entries.length) : null
+                  return autoCount > 0 ? (
+                    <p className="px-3 py-1.5 text-[10px] text-slate-400 border-t border-slate-100">
+                      위 신청자 외 {autoCount}명은 신청 없이 자동배정됨
+                    </p>
+                  ) : null
+                })()}
+              </div>
+            )}
+          </div>
+          {logPopup.unmatched && logPopup.nurseId && (
+            <div className="px-3 py-2 border-t border-slate-100">
+              <button
+                onClick={() => {
+                  const nurse = logPopup.nurseObj
+                  const day = logPopup.day
+                  setLogPopup(null)
+                  setEditCell({ nurseId: logPopup.nurseId, nurseObj: nurse, day, rect: { left: logPopup.x, bottom: logPopup.y, top: logPopup.cellTop ?? logPopup.y - 40 } })
+                }}
+                className="w-full py-1.5 text-xs font-semibold rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-600 transition-colors">
+                셀 직접 편집
+              </button>
+            </div>
+          )}
+        </div>
+        )
+      })()}
     </div>
   )
 }

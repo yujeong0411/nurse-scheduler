@@ -7,7 +7,7 @@ from ..database import get_db, db_nurses, db_rules, get_period_by_id
 from ..deps import get_current_admin
 from ..schemas import (
     GenerateRequest, JobStatusOut, CellUpdate, CellUpdateResult,
-    ScheduleOut, EvaluateOut, NurseOut,
+    ScheduleOut, EvaluateOut, NurseOut, ConflictCheckOut, ConflictWarning,
 )
 from ..config import settings
 from ..worker import run_solver_job, _convert_rules
@@ -18,6 +18,90 @@ router = APIRouter(prefix="/schedule", tags=["근무표"])
 _root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 if _root not in sys.path:
     sys.path.insert(0, _root)
+
+
+@router.get("/check-conflicts/{period_id}", response_model=ConflictCheckOut)
+def check_conflicts(period_id: str, _: dict = Depends(get_current_admin)):
+    """근무표 생성 전 A-condition OFF vs 최소인력 충돌 사전 검사"""
+    from datetime import date, timedelta
+    db = get_db()
+    period = get_period_by_id(db, period_id)
+    if not period:
+        raise HTTPException(404, "기간을 찾을 수 없습니다.")
+
+    rules_res = db_rules(db).execute()
+    rules_data = rules_res.data[0] if rules_res.data else {}
+    daily_D = int(rules_data.get("daily_d", 3))
+    daily_E = int(rules_data.get("daily_e", 3))
+    daily_N = int(rules_data.get("daily_n", 2))
+    min_required = daily_D + daily_E + daily_N
+
+    nurses_res = db_nurses(db).order("sort_order").execute()
+    nurses = nurses_res.data
+    total_nurses = len(nurses)
+    nurse_map = {n["id"]: n for n in nurses}
+
+    # A-condition OFF 신청 조회
+    req_res = (
+        db.table("requests")
+        .select("*")
+        .eq("period_id", period_id)
+        .eq("condition", "A")
+        .execute()
+    )
+
+    OFF_CODES = {"주", "OFF", "휴가", "특휴", "생휴", "수면", "공가", "경가", "보수", "번표"}
+
+    # day별 A-OFF 신청 간호사 목록
+    day_a_off: dict[int, list[str]] = {}
+    for r in req_res.data:
+        if r.get("code") in OFF_CODES and not r.get("is_or", False):
+            day = r["day"]
+            name = nurse_map.get(r["nurse_id"], {}).get("name", "?")
+            day_a_off.setdefault(day, []).append(name)
+
+    # 고정 주휴일 간호사 (해당 날짜에 무조건 쉬는 간호사)
+    start_date = date.fromisoformat(period["start_date"])
+    WD_KR = ["월", "화", "수", "목", "금", "토", "일"]
+
+    warnings: list[ConflictWarning] = []
+    num_days = 28
+
+    for day in range(1, num_days + 1):
+        if day not in day_a_off:
+            continue
+        di = day - 1
+        dt = start_date + timedelta(days=di)
+        date_str = f"{dt.month}/{dt.day} ({WD_KR[dt.weekday()]})"
+
+        # 고정 주휴일인 간호사 수
+        fixed_off_count = sum(
+            1 for n in nurses
+            if n.get("fixed_weekly_off") is not None
+            and n["fixed_weekly_off"] == dt.weekday()
+        )
+
+        # A-OFF 신청자 + 고정주휴 = 실질 빠지는 인원
+        a_off_names = day_a_off[day]
+        a_off_count = len(a_off_names)
+
+        available = total_nurses - fixed_off_count - a_off_count
+
+        if available < min_required:
+            warnings.append(ConflictWarning(
+                day=day,
+                date_str=date_str,
+                a_off_nurses=a_off_names,
+                available=available,
+                required=min_required,
+                message=(
+                    f"{date_str}: A-OFF 신청 {a_off_count}명 포함 시 가용 {available}명 "
+                    f"< 최소 필요 {min_required}명 (D{daily_D}+E{daily_E}+N{daily_N}). "
+                    f"신청이 무시될 수 있습니다."
+                ),
+            ))
+
+    return ConflictCheckOut(warnings=warnings)
 
 
 @router.post("/generate", response_model=JobStatusOut)

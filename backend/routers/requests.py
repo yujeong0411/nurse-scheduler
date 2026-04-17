@@ -9,7 +9,7 @@ from fastapi import APIRouter, HTTPException, Depends, UploadFile, File
 from fastapi.responses import StreamingResponse
 from ..database import get_db, db_nurses, get_period_by_id
 from ..deps import get_current_admin, get_current_any
-from ..schemas import RequestOut, RequestsUpsertBody, SubmissionStatus
+from ..schemas import RequestOut, RequestsUpsertBody, SubmissionStatus, NurseScoreOut, AssignmentLogEntry
 from ..config import settings
 
 router = APIRouter(prefix="/requests", tags=["근무신청"])
@@ -24,6 +24,8 @@ def _row_to_out(row: dict) -> RequestOut:
         is_or=row.get("is_or", False),
         note=row.get("note") or '',
         submitted_at=str(row.get("submitted_at", "")),
+        condition=row.get("condition", "B"),
+        score=row.get("score", 100),
     )
 
 
@@ -112,6 +114,31 @@ def upsert_requests(
 
     now_iso = datetime.utcnow().isoformat()
 
+    # ── 우선순위: 병가 제외 대상 코드 ──
+    _SKIP_PRIORITY = {"병가", "법휴", "필수"}
+
+    # A조건 최대 3개 검증 (병가 제외)
+    new_a_count = sum(
+        1 for item in body.items
+        if item.condition == 'A' and item.code not in _SKIP_PRIORITY
+    )
+    if new_a_count > 3:
+        raise HTTPException(400, f"A조건은 월 최대 3개까지 신청 가능합니다. (현재 {new_a_count}개)")
+
+    # 점수 = 100 - 현재 신청 항목 전체 차감액 (매 저장마다 처음부터 재계산)
+    new_score = 100 - sum(
+        (1 if item.condition == 'A' else 3)
+        for item in body.items
+        if item.code not in _SKIP_PRIORITY
+    )
+
+    # nurse_scores upsert
+    db.table("nurse_scores").upsert({
+        "period_id": period_id,
+        "nurse_id": nurse_id,
+        "score": new_score,
+    }, on_conflict="period_id,nurse_id").execute()
+
     # 기존 신청 전체 삭제 후 재삽입
     db.table("requests").delete().eq("period_id", period_id).eq("nurse_id", nurse_id).execute()
 
@@ -127,11 +154,107 @@ def upsert_requests(
             "is_or": item.is_or,
             "note": item.note or '',
             "submitted_at": now_iso,
+            "condition": item.condition if item.code not in _SKIP_PRIORITY else 'B',
+            "score": new_score,  # 차감 후 점수를 스냅샷으로 저장
         }
         for item in body.items
     ]
     res = db.table("requests").insert(rows).execute()
     return [_row_to_out(r) for r in res.data]
+
+
+@router.get("/{period_id}/score/{nurse_id}", response_model=NurseScoreOut)
+def get_nurse_score(period_id: str, nurse_id: str, current: dict = Depends(get_current_any)):
+    """간호사 본인 점수 조회"""
+    if current["role"] == "nurse" and current["sub"] != nurse_id:
+        raise HTTPException(403)
+    db = get_db()
+    res = (
+        db.table("nurse_scores")
+        .select("score")
+        .eq("period_id", period_id)
+        .eq("nurse_id", nurse_id)
+        .execute()
+    )
+    score = res.data[0]["score"] if res.data else 100
+    return NurseScoreOut(nurse_id=nurse_id, score=score)
+
+
+@router.get("/{period_id}/scores", response_model=list[NurseScoreOut])
+def get_all_scores(period_id: str, _: dict = Depends(get_current_admin)):
+    """해당 기간 전체 간호사 점수 일괄 조회 (관리자 전용)"""
+    db = get_db()
+    res = (
+        db.table("nurse_scores")
+        .select("nurse_id, score")
+        .eq("period_id", period_id)
+        .execute()
+    )
+    return [NurseScoreOut(nurse_id=r["nurse_id"], score=r["score"]) for r in res.data]
+
+
+@router.post("/{period_id}/reset-scores")
+def reset_scores(period_id: str, _: dict = Depends(get_current_admin)):
+    """해당 기간 모든 간호사 점수 100으로 초기화 (관리자 전용)"""
+    db = get_db()
+    nurses = db_nurses(db).execute().data
+    rows = [{"period_id": period_id, "nurse_id": n["id"], "score": 100} for n in nurses]
+    db.table("nurse_scores").upsert(rows, on_conflict="period_id,nurse_id").execute()
+    return {"reset": len(rows)}
+
+
+@router.post("/{period_id}/recalc-scores")
+def recalc_scores(period_id: str, _: dict = Depends(get_current_admin)):
+    """기존 신청 데이터 기준으로 전체 점수 재계산 (관리자 전용)"""
+    _SKIP_PRIORITY = {"병가", "법휴", "필수"}
+    db = get_db()
+    nurses = db_nurses(db).execute().data
+    req_res = db.table("requests").select("nurse_id, code, condition").eq("period_id", period_id).execute()
+
+    # nurse_id별 차감액 합산
+    deductions: dict[str, int] = {}
+    for r in req_res.data:
+        if r["code"] in _SKIP_PRIORITY:
+            continue
+        nid = r["nurse_id"]
+        deductions[nid] = deductions.get(nid, 0) + (1 if r.get("condition") == "A" else 3)
+
+    rows = [
+        {"period_id": period_id, "nurse_id": n["id"], "score": 100 - deductions.get(n["id"], 0)}
+        for n in nurses
+    ]
+    db.table("nurse_scores").upsert(rows, on_conflict="period_id,nurse_id").execute()
+    return {"recalculated": len(rows)}
+
+
+@router.get("/{period_id}/assignment-log/{day}/{code}", response_model=list[AssignmentLogEntry])
+def get_assignment_log(period_id: str, day: int, code: str, _: dict = Depends(get_current_admin)):
+    """날짜-근무 단위 배정 근거 조회 (관리자 전용)"""
+    db = get_db()
+    res = (
+        db.table("assignment_log")
+        .select("*")
+        .eq("period_id", period_id)
+        .eq("day", day)
+        .eq("code", code)
+        .order("rank")
+        .execute()
+    )
+    nurses = {n["id"]: n["name"] for n in db_nurses(db).execute().data}
+    return [
+        AssignmentLogEntry(
+            nurse_id=r["nurse_id"],
+            name=nurses.get(r["nurse_id"], ""),
+            code=r.get("code", ""),
+            requested_codes=r.get("requested_codes") or r.get("code", ""),
+            condition=r["condition"],
+            score=r["score"],
+            rank=r["rank"],
+            is_random=r["is_random"],
+            is_assigned=r["is_assigned"],
+        )
+        for r in res.data
+    ]
 
 
 @router.get("/{period_id}/export")
@@ -420,12 +543,14 @@ def import_requests_excel(
                                 "period_id": period_id, "nurse_id": nurse_id,
                                 "day": day_idx, "code": part,
                                 "is_or": True, "note": note, "submitted_at": now_iso,
+                                "condition": "B", "score": 100,
                             })
                 else:
                     items.append({
                         "period_id": period_id, "nurse_id": nurse_id,
                         "day": day_idx, "code": _normalize(code),
                         "is_or": False, "note": note, "submitted_at": now_iso,
+                        "condition": "B", "score": 100,
                     })
 
             db.table("requests").delete().eq("period_id", period_id).eq("nurse_id", nurse_id).execute()
