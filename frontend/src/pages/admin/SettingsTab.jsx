@@ -14,7 +14,7 @@ function Section({ title, icon, children, id }) {
   )
 }
 
-function NumRow({ label, desc, value, onChange, unit, min = 0 }) {
+function NumRow({ label, desc, value, onChange, unit, min = 0, max = Infinity, step = 1 }) {
   return (
     <li className="flex items-center justify-between px-4 py-3">
       <div>
@@ -22,10 +22,10 @@ function NumRow({ label, desc, value, onChange, unit, min = 0 }) {
         {desc && <p className="text-xs lg:text-sm text-slate-400 mt-0.5">{desc}</p>}
       </div>
       <div className="flex items-center gap-2">
-        <button onClick={() => onChange(Math.max(min, (value || 0) - 1))}
+        <button onClick={() => onChange(Math.max(min, (value || 0) - step))}
           className="w-8 h-8 lg:w-9 lg:h-9 bg-slate-100 hover:bg-slate-200 rounded-full text-slate-600 font-bold text-lg flex items-center justify-center transition-colors">−</button>
-        <span className="w-8 text-center font-bold text-slate-900 lg:text-base">{value ?? 0}</span>
-        <button onClick={() => onChange((value || 0) + 1)}
+        <span className="w-10 text-center font-bold text-slate-900 lg:text-base">{value ?? 0}</span>
+        <button onClick={() => onChange(Math.min(max, (value || 0) + step))}
           className="w-8 h-8 lg:w-9 lg:h-9 rounded-full text-white font-bold text-lg flex items-center justify-center transition-colors" style={{ background: '#2A3A7A' }}>+</button>
         <span className="text-xs lg:text-sm text-slate-400 w-5">{unit}</span>
       </div>
@@ -299,6 +299,7 @@ export default function SettingsTab({ period, onPeriodSaved }) {
         }>
           <NumRow label="당월 N 기준" desc="당월 N 횟수 이상이면 수면 발생" value={rules.sleep_n_monthly} onChange={v => setVal('sleep_n_monthly', v)} unit="회" />
           <NumRow label="2개월 합산 N 기준" desc="전월+당월 N 합산 이상이면 수면 발생" value={rules.sleep_n_bimonthly} onChange={v => setVal('sleep_n_bimonthly', v)} unit="회" />
+          <NumRow label="솔버 타임아웃" desc="해 탐색 제한 시간 (간호사 수가 많거나 제약이 복잡하면 늘려보세요)" value={rules.solver_timeout ?? 300} onChange={v => setVal('solver_timeout', v)} unit="초" min={60} max={1800} step={30} />
         </Section>
 
         {/* 법정공휴일 */}

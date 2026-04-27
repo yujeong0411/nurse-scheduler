@@ -104,7 +104,7 @@ function NurseForm({ initial, onSave, onCancel }) {
   )
 }
 
-export default function NurseManagementTab() {
+export default function NurseManagementTab({ period }) {
   const [nurses, setNurses] = useState([])
   const [loading, setLoading] = useState(true)
   const [editing, setEditing] = useState(null)
@@ -215,7 +215,7 @@ export default function NurseManagementTab() {
     if (!file) return
     setApplying(true)
     try {
-      const res = await nursesApi.importPrevExcel(file)
+      const res = await nursesApi.importPrevExcel(file, period?.id)
       const hasWarning = res.data.summary.includes('⚠️')
       showMsg(res.data.summary, !hasWarning, hasWarning ? 6000 : 2500); load()
     } catch (err) {

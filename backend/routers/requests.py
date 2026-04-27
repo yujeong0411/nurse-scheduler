@@ -117,19 +117,27 @@ def upsert_requests(
     # ── 우선순위: 병가 제외 대상 코드 ──
     _SKIP_PRIORITY = {"병가", "법휴", "필수"}
 
-    # A조건 최대 3개 검증 (병가 제외)
-    new_a_count = sum(
-        1 for item in body.items
-        if item.condition == 'A' and item.code not in _SKIP_PRIORITY
-    )
+    # OR 신청은 같은 날 여러 코드가 하나의 신청 → day 기준으로 중복 제거 후 집계
+    _seen_or_days: set[int] = set()
+    _counted_items = []
+    for item in body.items:
+        if item.code in _SKIP_PRIORITY:
+            continue
+        if item.is_or:
+            if item.day in _seen_or_days:
+                continue
+            _seen_or_days.add(item.day)
+        _counted_items.append(item)
+
+    # A조건 최대 3개 검증 (병가 제외, OR 그룹은 1개로 카운트)
+    new_a_count = sum(1 for item in _counted_items if item.condition == 'A')
     if new_a_count > 3:
         raise HTTPException(400, f"A조건은 월 최대 3개까지 신청 가능합니다. (현재 {new_a_count}개)")
 
-    # 점수 = 100 - 현재 신청 항목 전체 차감액 (매 저장마다 처음부터 재계산)
+    # 점수 = 100 - 차감액 (OR 그룹은 1번만 차감)
     new_score = 100 - sum(
-        (1 if item.condition == 'A' else 3)
-        for item in body.items
-        if item.code not in _SKIP_PRIORITY
+        1 if item.condition == 'A' else 3
+        for item in _counted_items
     )
 
     # nurse_scores upsert
@@ -513,7 +521,7 @@ def import_requests_excel(
         imported, skipped = 0, []
 
         for row in ws.iter_rows(min_row=data_start):
-            row_dict = {cell.column: cell.value for cell in row}
+            row_dict = {cell.column: cell.value for cell in row if hasattr(cell, 'column')}
             name = str(row_dict.get(name_col) or "").strip()
             if not name:
                 continue

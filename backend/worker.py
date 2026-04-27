@@ -45,9 +45,12 @@ def _run_solver_sync(
     schedule = solve_schedule(nurses, requests, rules, start_date, timeout_seconds)
 
     if not schedule.schedule_data:
+        warn_str = ("사전 경고:\n" + "\n".join(f"  - {w}" for w in warnings)) if warnings else "사전 경고 없음"
         raise RuntimeError(
-            "INFEASIBLE — 해를 찾을 수 없습니다.\n"
-            + (("사전 경고:\n" + "\n".join(f"  - {w}" for w in warnings)) if warnings else "사전 경고 없음 (규칙/인원 충돌 가능성)")
+            "해를 찾지 못했습니다.\n"
+            "타임아웃이거나 제약 충돌일 수 있습니다. "
+            "hard 신청(번표·수면·병가) 또는 인원 규칙을 확인하거나 타임아웃을 늘려보세요.\n"
+            + warn_str
         )
 
     # 직렬화 가능한 dict로 변환: {nurse_id(str): {day(str): shift}}
@@ -79,11 +82,12 @@ async def run_solver_job(job_id: str, period_id: str, db) -> None:
         rules_data    = _convert_rules(rules_res.data[0] if rules_res.data else {})
         start_date_str = period_res.data["start_date"]
 
+        timeout_sec = rules_res.data[0].get("solver_timeout", 300) if rules_res.data else 300
         loop   = asyncio.get_event_loop()
         result = await loop.run_in_executor(
             _executor,
             _run_solver_sync,
-            nurses_data, requests_data, rules_data, start_date_str, 180,
+            nurses_data, requests_data, rules_data, start_date_str, timeout_sec,
         )
 
         # 결과 저장
@@ -141,14 +145,21 @@ def _convert_requests(raw_requests: list[dict], nurses: list[dict]) -> list[dict
     nurse_ids = {n["id"] for n in nurses}
 
     # 간호사별 점수 재계산: 100 - (A신청×1 + B신청×3), 제외 코드 제외
+    # OR 신청 (is_or=True)은 같은 (nurse_id, day)를 하나의 신청으로 집계
     deductions: dict[str, int] = {}
+    seen_or: set[tuple] = set()
     for r in raw_requests:
         if r["nurse_id"] not in nurse_ids:
             continue
         if r.get("code") in _SKIP:
             continue
-        cond = r.get("condition") or "B"
         nid = r["nurse_id"]
+        if r.get("is_or"):
+            key = (nid, r["day"])
+            if key in seen_or:
+                continue
+            seen_or.add(key)
+        cond = r.get("condition") or "B"
         deductions[nid] = deductions.get(nid, 0) + (1 if cond == "A" else 3)
 
     computed_scores: dict[str, int] = {nid: 100 - d for nid, d in deductions.items()}
@@ -258,16 +269,13 @@ def _save_assignment_log(db, period_id: str, requests_data: list[dict], result: 
         is_random = _is_random_used(sorted_applicants)
 
         # solver 배정 결과에서 이 (day, code) 배정 여부 확인
-        _ALL_OFF = {'주', 'OFF', '법휴', '수면', '생휴', '휴가', '병가', '특휴', '공가', '경가', '보수', 'POFF', '필수', '번표'}
-        code_is_off = code in _ALL_OFF
+        # 정확히 신청 코드와 일치해야 배정된 것으로 판정
+        # (OFF 신청 → 수면 배정처럼 다른 off 타입으로 대체된 경우 False)
         day_str = str(day)
         for rank, applicant in enumerate(sorted_applicants, start=1):
             nid = applicant["nurse_id"]
             assigned_shift = result.get(nid, {}).get(day_str, "")
-            if code_is_off:
-                is_assigned = assigned_shift in _ALL_OFF
-            else:
-                is_assigned = (assigned_shift == code)
+            is_assigned = (assigned_shift == code)
             all_codes = nurse_day_codes.get((nid, day), [code])
             requested_codes = "/".join(dict.fromkeys(all_codes))  # 중복 제거, 순서 유지
             log_rows.append({

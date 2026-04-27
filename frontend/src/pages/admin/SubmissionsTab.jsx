@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { requestsApi, nursesApi, rulesApi } from '../../api/client'
-import { sc, fmtDate, getWd, getDate, mmdd, WD, NUM_DAYS, SHIFT_GROUPS, DEFAULT_RULES } from '../../utils/constants'
+import { sc, fmtDate, getWd, getDate, mmdd, WD, NUM_DAYS, SHIFT_GROUPS, WORK_SET, DEFAULT_RULES } from '../../utils/constants'
 import { validate } from '../../utils/validate'
 import NameFilter from '../../components/NameFilter'
 
@@ -221,7 +221,7 @@ export default function SubmissionsTab({ period }) {
 
     setSaving(nurseId)
     try {
-      const _SKIP = new Set(['병가', '법휴', '필수'])
+      const _SKIP = new Set(['병가', '필수'])
       const items = Object.entries(nurseData).flatMap(([d, v]) => {
         const isOr = v.codes.length > 1
         const cond = v.condition || 'B'
@@ -503,6 +503,7 @@ export default function SubmissionsTab({ period }) {
         const { nurseId, day } = activePick
         const nurse = nursesMap[nurseId] || null
         const sd = period?.start_date || null
+        const isHol = (rules.public_holidays || []).includes(day)
         const shiftsForNurse = Object.fromEntries(
           Object.entries(allRequestsRef.current[nurseId] || {}).map(([d, v]) => [+d, (v.codes || [])[0] || ''])
         )
@@ -541,11 +542,13 @@ export default function SubmissionsTab({ period }) {
                   {grp.shifts.map(code => {
                     const c = sc(code)
                     const vs = nurse ? validate(shiftsWithout, day, code, nurse, rules, sd) : []
+                    const isHolBlocked = isHol && !WORK_SET.has(code) && code !== '법휴'
                     const isSel = pickerSelected.includes(code)
                     return (
                       <button key={code}
                         onClick={() => {
                           setBlockPopup(null)
+                          if (isHolBlocked) { setBlockPopup({ code, violations: ['공휴일에는 법휴만 허용됩니다 (근무 신청은 가능)'] }); return }
                           if (vs.length > 0 && !isSel) { setBlockPopup({ code, violations: vs }); return }
                           setPickerSelected(prev =>
                             prev.includes(code) ? prev.filter(x => x !== code) : [...prev, code]
@@ -555,11 +558,11 @@ export default function SubmissionsTab({ period }) {
                         style={{
                           background: isSel ? c.fg : c.bg,
                           color: isSel ? 'white' : c.fg,
-                          border: `1.5px solid ${vs.length > 0 && !isSel ? '#FCA5A5' : isSel ? c.fg : c.border}`,
-                          opacity: vs.length > 0 && !isSel ? 0.45 : 1,
+                          border: `1.5px solid ${(isHolBlocked || (vs.length > 0 && !isSel)) ? '#FCA5A5' : isSel ? c.fg : c.border}`,
+                          opacity: (isHolBlocked || (vs.length > 0 && !isSel)) ? 0.4 : 1,
                         }}>
                         {code}
-                        {vs.length > 0 && !isSel && (
+                        {(isHolBlocked || (vs.length > 0 && !isSel)) && (
                           <span className="absolute -top-1 -right-1 bg-red-500 text-white rounded-full flex items-center justify-center font-black"
                             style={{ width: 13, height: 13, fontSize: 8 }}>!</span>
                         )}
@@ -589,7 +592,7 @@ export default function SubmissionsTab({ period }) {
 
             {/* A/B 조건 토글 */}
             {pickerSelected.length > 0 && (() => {
-              const _SKIP = new Set(['병가', '법휴', '필수'])
+              const _SKIP = new Set(['병가', '필수'])
               const hasPriority = pickerSelected.some(c => !_SKIP.has(c))
               if (!hasPriority) return null
               const { nurseId } = activePick

@@ -632,6 +632,18 @@ def _find_day_columns(ws) -> tuple[int, dict[int, int], int, int] | None:
 
     # ── 열 순서대로 스케줄 day 1, 2, 3, ... 매핑 ──
     raw_day_cols.sort(key=lambda x: x[0])  # 열 위치 순 정렬
+
+    # 통계 열 제거: 연속된 클러스터 이후 큰 gap(>3)이 생기면 거기서 잘라냄
+    if len(raw_day_cols) > 1:
+        cutoff = len(raw_day_cols)
+        for i in range(1, len(raw_day_cols)):
+            if raw_day_cols[i][0] - raw_day_cols[i - 1][0] > 3:
+                cutoff = i
+                break
+        raw_day_cols = raw_day_cols[:cutoff]
+    # 스케줄은 항상 28일이므로 최대 28개까지만 사용
+    raw_day_cols = raw_day_cols[:28]
+
     day_cols = {i + 1: col for i, (col, _cal_day) in enumerate(raw_day_cols)}
 
     if not day_cols:

@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from 'react'
 import { validate } from '../utils/validate'
-import { SHIFT_GROUPS, WD, sc, getWd, getDate } from '../utils/constants'
+import { SHIFT_GROUPS, WORK_SET, WD, sc, getWd, getDate } from '../utils/constants'
 
 const PRIORITY_CODES = new Set([
   'D','E','N','D9','D1','중1','중2',
@@ -31,6 +31,10 @@ export default function ShiftSheet({ day, shifts, notes = {}, conditions = {}, n
   }, [noteStep])
 
   const handlePick = (s) => {
+    if (isHol && !WORK_SET.has(s) && s !== '법휴') {
+      setConfirm({ shift: s, violations: ['공휴일에는 법휴만 허용됩니다 (근무 신청은 가능)'] })
+      return
+    }
     setConfirm(null)
     setSelected(prev =>
       prev.includes(s) ? prev.filter(x => x !== s) : [...prev, s]
@@ -146,6 +150,7 @@ export default function ShiftSheet({ day, shifts, notes = {}, conditions = {}, n
                     {grp.shifts.map(s => {
                       const ps = { ...shifts }; delete ps[day]
                       const vs = nurse ? validate(ps, day, s, nurse, rules, startDate) : []
+                      const isHolBlocked = isHol && !WORK_SET.has(s) && s !== '법휴'
                       const isCur = selected.includes(s)
                       const st = sc(s)
                       return (
@@ -154,12 +159,12 @@ export default function ShiftSheet({ day, shifts, notes = {}, conditions = {}, n
                           style={{
                             background: isCur ? st.fg : st.bg,
                             color: isCur ? 'white' : st.fg,
-                            border: `2px solid ${isCur ? st.fg : vs.length > 0 ? '#FCA5A5' : st.border}`,
-                            opacity: vs.length > 0 && !isCur ? 0.45 : 1,
+                            border: `2px solid ${isCur ? st.fg : (isHolBlocked || vs.length > 0) ? '#FCA5A5' : st.border}`,
+                            opacity: (isHolBlocked || (vs.length > 0 && !isCur)) ? 0.4 : 1,
                             boxShadow: isCur ? '0 2px 8px rgba(0,0,0,0.2)' : 'none',
                           }}>
                           {s}
-                          {vs.length > 0 && !isCur && (
+                          {(isHolBlocked || (vs.length > 0 && !isCur)) && (
                             <span className="absolute -top-1.5 -right-1.5 bg-red-500 text-white rounded-full flex items-center justify-center font-black"
                               style={{ width: 16, height: 16, fontSize: 9 }}>!</span>
                           )}

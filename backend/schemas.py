@@ -81,6 +81,7 @@ class RulesOut(BaseModel):
     sleep_n_monthly: int = 7
     sleep_n_bimonthly: int = 11
     public_holidays: list[int] = []
+    solver_timeout: int = 300
 
 class RulesUpdate(RulesOut):
     pass

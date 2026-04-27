@@ -163,8 +163,8 @@ class Nurse:
         return cls(**filtered)
 
 
-# 우선순위 조건과 무관하게 항상 hard로 처리할 코드 (의료/법적 필수)
-_ALWAYS_HARD_CODES = {"병가", "D9", "D1"}
+# 우선순위 조건과 무관하게 항상 hard로 처리할 코드 (의료/법적/행정 필수)
+_ALWAYS_HARD_CODES = {"병가", "D9", "D1", "번표", "수면"}
 
 @dataclass
 class Request:
@@ -204,7 +204,7 @@ class Request:
     def is_hard(self) -> bool:
         """반드시 지켜야 하는 확정 요청인가?
 
-        - 병가/법휴/필수/D9/D1: 조건 무관하게 항상 hard
+        - 병가/번표/수면/D9/D1: 조건 무관하게 항상 hard
         - 그 외 모든 코드: A/B 조건과 무관하게 soft (S1 가중치로 우선순위 결정)
           A조건 → weight 800+score*5 (soft-high)
           B조건 → weight 150+score*5

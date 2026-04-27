@@ -177,12 +177,7 @@ export default function AdminLayout() {
   const loadPeriods = (selectStartDate = null) => {
     settingsApi.listPeriods()
       .then(res => {
-        // 만료되지 않은 기간만 표시 (end_date >= 오늘)
-        const today = new Date(); today.setHours(0, 0, 0, 0)
-        const list = res.data.filter(p => {
-          const end = new Date(new Date(p.start_date).getTime() + 27 * 86400000)
-          return end >= today
-        })
+        const list = res.data
         setPeriods(list)
         if (list.length > 0) {
           if (selectStartDate) {
@@ -495,7 +490,7 @@ export default function AdminLayout() {
       {/* 탭 콘텐츠 */}
       <main className="flex-1 flex flex-col min-h-0">
         {activeTab === 'settings'    && <SettingsTab period={selPeriod} onPeriodSaved={loadPeriods} onSelectPeriod={handleSelectPeriod} />}
-        {activeTab === 'nurses'      && <NurseManagementTab />}
+        {activeTab === 'nurses'      && <NurseManagementTab period={selPeriod} />}
         {activeTab === 'submissions' && <SubmissionsTab period={selPeriod ? { ...selPeriod, period_id: selPeriod.id } : null} />}
         {activeTab === 'schedule'    && <ScheduleResultTab period={selPeriod ? { ...selPeriod, period_id: selPeriod.id } : null} />}
       </main>

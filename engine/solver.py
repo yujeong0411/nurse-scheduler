@@ -37,10 +37,11 @@ Hard Constraints:
  H18. 공휴일 비근무 시 법휴만 허용 (고정주휴/하드요청 제외)
  H19. 임산부 POFF: 4연속 근무 후 추가 휴무
  H20. 휴무 편차 제한 (일반 ±2, 주4일제 +4)
+ H21. 신청 휴무 샌드위치 금지 (휴무 신청한 날이 양쪽 모두 휴무 배정이면 해당 날도 반드시 휴무)
  특수 휴무 갯수 (생휴/수면 조건부 하드, 특휴/공가/경가/보수 하드요청분, 휴가 catch-all)
 
 Soft Constraints:
- S1. 희망 요청 반영 (+30)
+ S1. 희망 요청 반영 (A: +800+score×5, B: +250+score×5)
  S2. D/E/N 횟수 공정 (-5)
  S3. N 균등 배분 (-8)
  S4. 주말 균등 배분 (-8)
@@ -561,7 +562,7 @@ def _diagnose_infeasible(nurses, requests, rules, start_date, num_days, shifts, 
             base_proto.constraints[i] for i in range(n)
         )
         s = _cp.CpSolver()
-        s.parameters.max_time_in_seconds = 20
+        s.parameters.max_time_in_seconds = 15
         s.parameters.num_workers = 2
         status = s.solve(m)
         if status in (_cp.OPTIMAL, _cp.FEASIBLE):
@@ -1060,8 +1061,9 @@ def solve_schedule(
                     nurse_committed_days[ni].add(di)
 
     _cp_idx["H10(고정주휴)"] = len(model.proto.constraints)
-    # ── H11. 주당 OFF 정확히 N개 (일반 1개, 주4일제 2개) ──
-    # 하드 커밋·고정주휴 제외 남은 날만큼 OFF 요구 (병가·휴가 등 몰린 주 자동 처리)
+    # ── H11. 주당 OFF ≥ N개 (일반 1개, 주4일제 2개) — 법휴 대체 허용 ──
+    # 공휴일 주에 법휴를 받으면 해당 법휴가 OFF 요구를 대체할 수 있음
+    # (_OFF + 법휴) >= required, _OFF <= required (OFF 자체는 초과 불가)
     for ni in range(num_nurses):
         required_off = 2 if nurses[ni].is_4day_week else 1
         committed = nurse_committed_days[ni]
@@ -1073,7 +1075,14 @@ def solve_schedule(
                 continue
             available = sum(1 for di in range(w_start, w_end) if di not in committed)
             effective_off = min(required_off, available)
-            model.add(off_sum == effective_off)
+            # 법휴가 있는 주는 법휴로 OFF 요구 대체 가능
+            hol_sum = sum(
+                shifts[(ni, di, _법휴)]
+                for di in range(w_start, w_end)
+                if di in public_holiday_dis
+            )
+            model.add(off_sum + hol_sum >= effective_off)
+            model.add(off_sum <= effective_off)
 
     _cp_idx["H11(주당OFF)"] = len(model.proto.constraints)
     # ── [진단] H11 후 간호사별 OFF 현황 ──
@@ -1267,16 +1276,13 @@ def solve_schedule(
                 model.add(sleep_sum == 0).only_enforce_if(sleep_needed.Not())
                 model.add(sleep_sum == 1).only_enforce_if(sleep_needed)
 
-                for di in range(num_days):
-                    if di < eff_threshold:
-                        model.add(shifts[(ni, di, _수면)] == 0)
-                    else:
-                        model.add(
-                            sum(shifts[(ni, dd, _N)] for dd in range(di))
-                            >= eff_threshold
-                        ).only_enforce_if(shifts[(ni, di, _수면)])
+                # eff_threshold일 이전엔 수면 불가 (최소한 그 날수가 지나야 N 누적 가능)
+                # 누적 N 체크는 제거: per-day 조건부 690개 제약이 솔버 성능을 급격히 저하시킴
+                for di in range(min(eff_threshold, num_days)):
+                    model.add(shifts[(ni, di, _수면)] == 0)
 
     _cp_idx["특수OFF-수면"] = len(model.proto.constraints)
+    _log(f"[진단] 총 제약 수: {len(model.proto.constraints)}개 | 변수: {num_nurses}×28×{NUM_TYPES}={num_nurses*28*NUM_TYPES}개")
 
     # 진단: 특수OFF 하드 요청 현황 출력
     _special_off_codes = [("생휴", _생휴), ("수면", _수면), ("휴가", _휴가), ("병가", _병가),
@@ -1315,12 +1321,25 @@ def solve_schedule(
                 1 for di in range(num_days)
                 if (ni, di) in fixed_off_days and span_s <= di <= span_e
             )
-        # 특휴, 공가, 경가, 보수, 필수, 번표, 병가: == hard_request_count (요청 시만)
-        for idx in [_특휴, _공가, _경가, _보수, _필수, _번표, _병가]:
+        # 번표, 병가: hard → 월 총 배정 수 정확히 == 요청 수
+        for idx in [_번표, _병가]:
             model.add(
                 sum(shifts[(ni, di, idx)] for di in range(num_days))
                 == hard_counts[idx]
             )
+        # 특휴, 공가, 경가, 보수, 필수: soft → 신청하지 않은 날에는 배정 불가
+        # (신청한 날에는 S1 가중치로 반영 시도, 인원 부족 시 미반영 가능)
+        _soft_specific = [("특휴", _특휴), ("공가", _공가), ("경가", _경가), ("보수", _보수), ("필수", _필수)]
+        _soft_req_days = {idx: set() for _, idx in _soft_specific}
+        for r in requests:
+            if r.nurse_id == nurse.id and r.code in {c for c, _ in _soft_specific}:
+                di_r = r.day - 1
+                if 0 <= di_r < num_days:
+                    _soft_req_days[NAME_TO_IDX[r.code]].add(di_r)
+        for _, idx in _soft_specific:
+            for di in range(num_days):
+                if di not in _soft_req_days[idx]:
+                    model.add(shifts[(ni, di, idx)] == 0)
 
     _cp_idx["특수OFF-기타(==)"] = len(model.proto.constraints)
     for ni, nurse in enumerate(nurses):
@@ -1361,8 +1380,10 @@ def solve_schedule(
             if 0 <= di_r < num_days:
                 hard_req_days.add((ni_r, di_r))
 
+    # H18: 공휴일에 비근무 시 법휴만 허용 (주휴/하드요청 제외)
+    # _OFF는 차단 — 공휴일에는 법휴여야 함. H11은 법휴로 대체 가능하도록 별도 수정
+    h18_count = 0
     for di in public_holiday_dis:
-        # di = hday - 1
         if di < 0 or di >= num_days:
             continue
         for ni in range(num_nurses):
@@ -1373,6 +1394,8 @@ def solve_schedule(
             for oi in ALL_OFF:
                 if oi != _법휴:
                     model.add(shifts[(ni, di, oi)] == 0)
+                    h18_count += 1
+    _log(f"[H18] {h18_count}개 제약 추가 (공휴일={public_holiday_dis})")
 
     # ── H19. 임산부 POFF: 4연속 근무 후 추가 휴무 ──
     for ni, nurse in enumerate(nurses):
@@ -1430,8 +1453,9 @@ def solve_schedule(
         (total_off_slots - extra_off_4day * n_fourday) / max(num_nurses, 1)
     )
 
-    # 하드 휴무 + H11 최소 OFF 합계가 범위 초과 시 H20 제외
-    # (H11이 >= 로 바뀌어 실제 OFF는 예상보다 많을 수 있으나 상한 체크는 여전히 유효)
+    # 하드 휴무 + H11 최소 OFF + 자동배정 OFF 합계가 범위 초과 시 H20 제외
+    # 생휴(여성 자동), 수면(auto/pending), 법휴(공휴일 강제)를 모두 포함해야
+    # "우영미(번표)+생휴+수면+법휴=14 > 13" 같은 경우를 정확히 건너뜀
     def _expected_off_count(ni):
         nid = nurses[ni].id
         hard_off = sum(
@@ -1440,14 +1464,13 @@ def solve_schedule(
             and 1 <= r.day <= num_days
         )
         # H10 FWO 주 일수 추가 — 주휴일은 ALL_OFF에 포함되므로 반드시 계산
-        # (병가 span 내 FWO는 병가로 처리되어 이미 hard_off에 포함됨)
         span = nurse_병가_span[ni]
         nurse_fwo = nurses[ni].fixed_weekly_off
         if nurse_fwo is not None:
             for di in range(num_days):
                 if weekday_of(di) == nurse_fwo:
                     if not (span and span[0] <= di <= span[1]):
-                        hard_off += 1  # 주휴일 (주 shift = ALL_OFF)
+                        hard_off += 1
         # H11 mandated OFFs per week
         required = 2 if nurses[ni].is_4day_week else 1
         for w in range(0, num_days, 7):
@@ -1455,7 +1478,7 @@ def solve_schedule(
             if w_end - w < 4:
                 continue
             if span and all(span[0] <= di <= span[1] for di in range(w, w_end)):
-                continue  # 전체 병가 주 → OFF 불필요
+                continue
             if span and any(span[0] <= di <= span[1] for di in range(w, w_end)):
                 avail = sum(
                     1 for di in range(w, w_end)
@@ -1465,29 +1488,99 @@ def solve_schedule(
                 hard_off += min(required, avail)
             else:
                 hard_off += required
+
+        # ── 자동 배정 OFF 추정 (H20 skip 여부 판단용) ──
+        # 생휴: 여성 간호사 월 1회 자동 (hard 요청으로 이미 counted된 경우 제외)
+        if not nurses[ni].is_male and rules.menstrual_leave:
+            auto_menst = max(0, _period_months - (1 if nurses[ni].menstrual_used else 0))
+            already_menst = sum(
+                1 for r in requests
+                if r.nurse_id == nid and r.is_hard and r.code == "생휴"
+                and 1 <= r.day <= num_days
+            )
+            hard_off += max(0, auto_menst - already_menst)
+
+        # 수면: pending_sleep → 자동 1개, auto-수면 가능 간호사도 +1 (보수적 추정)
+        sleep_already = sum(
+            1 for r in requests
+            if r.nurse_id == nid and r.is_hard and r.code == "수면"
+            and 1 <= r.day <= num_days
+        )
+        if sleep_already == 0:
+            if nurses[ni].pending_sleep:
+                hard_off += 1
+            else:
+                # 짝수달 bimonthly 조건: eff_threshold ≤ max_N이면 수면 배정 가능성 있음
+                _partner = get_sleep_partner_month(start_date.month)
+                _eff_t = rules.sleep_N_monthly
+                if _partner is not None:
+                    _eff_t = min(_eff_t, max(0, rules.sleep_N_bimonthly - nurses[ni].prev_month_N))
+                if 0 < _eff_t <= rules.max_N_per_month:
+                    hard_off += 1  # auto-sleep 발생 가능
+
+        # 법휴: 공휴일에 근무 못 하면 강제 법휴 → 최대 공휴일 수만큼 가산
+        hard_off += len(public_holiday_dis)
+
+        # NN 경계: prev_tail이 NN으로 끝나면 H6이 di=0·di=1 모두 off 강제
+        # H11은 week 1에서 _OFF 1개만 요구 → di=0=_OFF, di=1=다른 off 타입 → 실제 off +1
+        tail = nurses[ni].prev_tail_shifts or []
+        if len(tail) >= 2 and tail[-2] == "N" and tail[-1] == "N":
+            hard_off += 1
+
         return hard_off
 
+    # H20 공차(tolerance): ±2 기본, 공휴일이 있으면 ±3으로 확장
+    h20_tol = 3 if public_holiday_dis else 2
+
+    h20_skip_count = 0
+    h20_apply_count = 0
     for ni in regular_nis:
-        if _expected_off_count(ni) > base_off + 2:
-            continue  # 예상 휴무가 범위 초과 → 제약 생략
+        if _expected_off_count(ni) > base_off + h20_tol:
+            h20_skip_count += 1
+            continue
         off_sum = sum(
             shifts[(ni, di, oi)]
             for di in range(num_days) for oi in ALL_OFF
         )
-        model.add(off_sum >= base_off - 2)
-        model.add(off_sum <= base_off + 2)
+        model.add(off_sum >= base_off - h20_tol)
+        model.add(off_sum <= base_off + h20_tol)
+        h20_apply_count += 1
 
     if fourday_nis:
         fourday_target = base_off + extra_off_4day
         for ni in fourday_nis:
-            if _expected_off_count(ni) > fourday_target + 2:
-                continue  # 예상 휴무가 범위 초과 → 제약 생략
+            if _expected_off_count(ni) > fourday_target + h20_tol:
+                h20_skip_count += 1
+                continue
             off_sum = sum(
                 shifts[(ni, di, oi)]
                 for di in range(num_days) for oi in ALL_OFF
             )
-            model.add(off_sum >= fourday_target - 2)
-            model.add(off_sum <= fourday_target + 2)
+            model.add(off_sum >= fourday_target - h20_tol)
+            model.add(off_sum <= fourday_target + h20_tol)
+            h20_apply_count += 1
+
+    _log(f"[H20] applied={h20_apply_count} skip={h20_skip_count} | base_off={base_off} tol=±{h20_tol}")
+
+    # ── H21. 신청 휴무 샌드위치 금지 ──
+    # 간호사가 d일에 휴무 신청 + d-1일·d+1일이 모두 휴무로 배정 → d일도 반드시 휴무
+    # 패턴: 휴무(배정) - 근무(휴무신청 but 잘림) - 휴무(배정) 방지
+    for ni in range(num_nurses):
+        nid = nurses[ni].id
+        for di in range(1, num_days - 1):
+            r = req_map.get((nid, di + 1))  # day는 1-based
+            if r is None or not r.is_off_request:
+                continue
+            is_off_d   = model.new_bool_var(f"is_off_n{ni}_d{di}")
+            is_off_dm1 = model.new_bool_var(f"is_off_n{ni}_d{di-1}")
+            is_off_dp1 = model.new_bool_var(f"is_off_n{ni}_d{di+1}")
+            model.add(is_off_d   == sum(shifts[(ni, di,     oi)] for oi in ALL_OFF))
+            model.add(is_off_dm1 == sum(shifts[(ni, di - 1, oi)] for oi in ALL_OFF))
+            model.add(is_off_dp1 == sum(shifts[(ni, di + 1, oi)] for oi in ALL_OFF))
+            # is_off[d-1] AND is_off[d+1] → is_off[d]
+            # 동치: NOT(is_off[d-1]) OR NOT(is_off[d+1]) OR is_off[d]
+            model.add_bool_or([is_off_dm1.Not(), is_off_dp1.Not(), is_off_d])
+    _cp_idx["H21(샌드위치금지)"] = len(model.proto.constraints)
 
     # ══════════════════════════════════════════
     # SOFT CONSTRAINTS (목적함수)
@@ -1511,13 +1604,12 @@ def solve_schedule(
         if di < 0 or di >= num_days:
             continue
 
-        # A조건: 근무/OFF 모두 soft-high (800 + score*5)
-        # B조건: soft (150 + score*5)
-        # score*5: score 차이를 5배 확대 → 공정성 페널티(~5~25)에 역전 방지
+        # A조건: 근무/OFF 모두 soft-high (800 + score*5), max 1300
+        # B조건: soft (250 + score*5), max 750 — A보다 낮게 유지
         if r.condition == 'A':
             weight = 800 + r.score * 5
         else:
-            weight = 150 + r.score * 5
+            weight = 250 + r.score * 5
 
         # OR 요청은 별도 그룹 처리
         if r.is_or:
@@ -1529,20 +1621,13 @@ def solve_schedule(
                 or_weights[key] = max(or_weights[key], weight)  # 같은 날 OR 중 최고 weight
             if r.code in NAME_TO_IDX:
                 si = NAME_TO_IDX[r.code]
-                if r.code == 'OFF' and si in ALL_OFF:
-                    or_groups[key].extend(ALL_OFF)  # 'OFF' 요청만 어떤 off든 충족
-                else:
-                    or_groups[key].append(si)
+                or_groups[key].append(si)  # 정확히 그 코드만 매칭
             continue
 
         if r.code in NAME_TO_IDX:
             si = NAME_TO_IDX[r.code]
-            if r.code == 'OFF' and si in ALL_OFF:
-                # 'OFF' 요청만 → 어떤 off 타입이든 쉬면 충족
-                obj.append(weight * sum(shifts[(ni, di, oi)] for oi in ALL_OFF))
-            else:
-                # 근무 또는 구체적 휴무(휴가/수면/생휴 등) → 정확히 그 타입이어야 충족
-                obj.append(weight * shifts[(ni, di, si)])
+            # 정확히 신청 코드와 일치해야 보상 (OFF → _OFF만, 수면/생휴 등은 각각 별도 신청)
+            obj.append(weight * shifts[(ni, di, si)])
 
     # ── S1a. OR 그룹 반영 (condition/score 가중치) ──
     # 하루에 shift는 1개만 → sum 최대 1 → 보상 1회
@@ -1680,7 +1765,7 @@ def solve_schedule(
     # ══════════════════════════════════════════
     solver = cp_model.CpSolver()
     solver.parameters.max_time_in_seconds = timeout_seconds
-    solver.parameters.num_workers = 4
+    solver.parameters.num_workers = 8
     
     _log("solver.solve() 호출 시작...")
     status = solver.solve(model)
@@ -1706,10 +1791,12 @@ def solve_schedule(
 
         # 후처리 (현재 솔버가 모든 휴무 타입을 직접 관리하므로 최소한)
         _post_process(schedule, nurses, rules)
-    else:
+    elif status == cp_model.INFEASIBLE:
         _log("해를 찾을 수 없습니다 (Infeasible). 원인 진단 시작...")
         _cp_idx["H20(휴무편차)"] = len(model.proto.constraints)
         _diagnose_infeasible(nurses, requests, rules, start_date, num_days, shifts, model, _cp_idx)
+    else:
+        _log(f"타임아웃 — 제한 시간 내에 해를 찾지 못했습니다 (status={status}). 타임아웃을 늘리거나 hard 신청(번표·수면·병가)을 확인하세요.")
     return schedule
 
 

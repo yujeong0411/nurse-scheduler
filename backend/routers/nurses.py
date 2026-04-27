@@ -4,7 +4,7 @@ import sys
 import os
 import tempfile
 from fastapi import APIRouter, HTTPException, UploadFile, File, Depends, Query
-from ..database import get_db, db_nurses, db_rules, db_periods, get_active_period
+from ..database import get_db, db_nurses, db_rules, db_periods, get_active_period, get_period_by_id
 from ..auth import hash_password
 from ..deps import get_current_admin, get_current_nurse
 from ..schemas import NurseCreate, NurseUpdate, NurseOut, ApplyPrevResult
@@ -204,6 +204,7 @@ def apply_prev_schedule(
 @router.post("/import-prev-excel", response_model=ApplyPrevResult)
 def import_prev_excel(
     file: UploadFile = File(...),
+    period_id: str | None = Query(None),
     _: dict = Depends(get_current_admin),
 ):
     """이전 달 근무표 엑셀에서 prev_tail_shifts, prev_month_N, pending_sleep, menstrual_used, vacation_days 업데이트"""
@@ -216,20 +217,23 @@ def import_prev_excel(
 
     db = get_db()
 
-    # 현재(신규) 기간 시작일
-    active_period = get_active_period(db)
+    # 현재(신규) 기간: period_id가 넘어오면 해당 기간 사용, 아니면 active 기간으로 fallback
+    if period_id:
+        cur_period = get_period_by_id(db, period_id)
+    else:
+        cur_period = get_active_period(db)
     new_start_date = (
-        date.fromisoformat(active_period["start_date"])
-        if active_period and active_period.get("start_date") else None
+        date.fromisoformat(cur_period["start_date"])
+        if cur_period and cur_period.get("start_date") else None
     )
 
     # 직전 기간 시작일을 DB에서 조회 (timedelta 추정 오류 방지)
     expected_prev = None
     if new_start_date:
-        active_period_id = active_period["id"] if active_period else None
+        cur_period_id = cur_period["id"] if cur_period else None
         prev_periods = db_periods(db).order("start_date", desc=True).execute()
         for p in prev_periods.data:
-            if p["id"] == active_period_id:
+            if p["id"] == cur_period_id:
                 continue
             if p.get("start_date"):
                 pd = date.fromisoformat(p["start_date"])

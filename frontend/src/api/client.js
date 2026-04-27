@@ -50,9 +50,11 @@ export const nursesApi = {
     api.post('/nurses/apply-prev-schedule', null, {
       params: scheduleId ? { schedule_id: scheduleId } : {}
     }),
-  importPrevExcel: (file) => {
+  importPrevExcel: (file, periodId) => {
     const fd = new FormData(); fd.append('file', file)
-    return api.post('/nurses/import-prev-excel', fd)
+    return api.post('/nurses/import-prev-excel', fd, {
+      params: periodId ? { period_id: periodId } : {}
+    })
   },
 }
 
