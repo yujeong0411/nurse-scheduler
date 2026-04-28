@@ -56,16 +56,9 @@ from engine.models import (
     Nurse, Request, Rules, Schedule, ROLE_TIERS, get_sleep_partner_month,
     WORK_SHIFTS, SHIFT_ORDER,
 )
-from datetime import datetime
+import logging as _logging
 def _log(message):
-    """실행 파일 위치에 crash.log 파일을 생성하여 로그를 기록합니다."""
-    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    log_msg = f"[{timestamp}] {message}\n"
-    print(log_msg)  # 터미널에도 출력
-    
-    # EXE 실행 시에도 찾기 쉬운 위치(바탕화면이나 프로그램 폴더)에 로그 생성
-    with open("solver_debug.log", "a", encoding="utf-8") as f:
-        f.write(log_msg)
+    _logging.warning(f"[solver] {message}")
 
 
 # ══════════════════════════════════════════
