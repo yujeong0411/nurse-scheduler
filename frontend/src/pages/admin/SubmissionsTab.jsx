@@ -513,22 +513,42 @@ export default function SubmissionsTab({ period }) {
         const popH = (blockPopup ? 340 : 260) + (note ? 40 : 0)
         const top = activePick.y + 2 + popH > window.innerHeight ? activePick.y - popH - 2 : activePick.y + 2
         const left = Math.max(4, Math.min(activePick.x, window.innerWidth - popW - 4))
+        const dateLabel = sd ? `${mmdd(getDate(sd, day))} (${WD[getWd(sd, day)]})` : `${day}일`
         return (
         <div ref={pickerRef}
-          className="fixed z-50 bg-white rounded-xl shadow-xl border border-slate-200"
+          className="fixed z-50 bg-white rounded-xl shadow-xl border border-slate-200 overflow-hidden"
           style={{ width: popW, top, left }}>
-          <div className="p-2 space-y-1.5">
-            {/* 현재 선택 미리보기 */}
-            <div className="flex items-center gap-1 flex-wrap min-h-[22px]">
-              {pickerSelected.length > 0 ? pickerSelected.map(s => {
-                const c = sc(s)
-                return (
-                  <span key={s} className="px-1.5 py-0.5 rounded font-bold text-[10px]"
-                    style={{ background: c.fg, color: 'white' }}>{s}</span>
-                )
-              }) : <span className="text-[10px] text-slate-300">선택 없음</span>}
-            </div>
 
+          {/* 헤더 */}
+          <div className="flex items-center justify-between px-3 py-2 border-b border-slate-100 bg-slate-50">
+            <div className="flex items-center gap-1.5 min-w-0 flex-1">
+              {nurse?.name && (
+                <span className="text-xs font-bold text-slate-700 flex-shrink-0 truncate max-w-[70px]">{nurse.name}</span>
+              )}
+              <span className="text-slate-300 flex-shrink-0">·</span>
+              <span className="text-xs font-bold text-slate-700 flex-shrink-0">{dateLabel}</span>
+              {pickerSelected.length > 0 && (
+                <>
+                  <span className="text-slate-300 flex-shrink-0">·</span>
+                  <div className="flex items-center gap-0.5 flex-wrap">
+                    {pickerSelected.map(s => {
+                      const c = sc(s)
+                      return (
+                        <span key={s} className="px-1 py-0.5 rounded font-bold text-[10px]"
+                          style={{ background: c.fg, color: 'white' }}>{s}</span>
+                      )
+                    })}
+                  </div>
+                </>
+              )}
+            </div>
+            <button onClick={() => setActivePick(null)}
+              className="text-slate-400 hover:text-slate-600 text-base leading-none flex-shrink-0 ml-2">
+              ×
+            </button>
+          </div>
+
+          <div className="p-2 space-y-1.5">
             {note && (
               <div className="flex items-start gap-1 px-1.5 py-1.5 rounded-lg bg-amber-50 border border-amber-200">
                 <span className="text-[10px] text-amber-800 leading-snug">{note}</span>
@@ -628,18 +648,23 @@ export default function SubmissionsTab({ period }) {
               )
             })()}
 
-            <div className="border-t border-slate-100 pt-1 flex gap-1">
-              <button onClick={() => handlePickCodes([])}
-                className="py-1 px-2 text-[10px] font-semibold text-slate-400 hover:text-red-500 hover:bg-red-50 rounded transition-colors flex-shrink-0">
-                지우기
-              </button>
-              <button
-                onClick={() => handlePickCodes(pickerSelected, pickerCondition)}
-                className="flex-1 py-1 text-[10px] font-bold text-white rounded transition-colors"
-                style={{ background: pickerSelected.length > 0 ? '#2A3A7A' : '#94A3B8' }}>
-                {pickerSelected.length === 0 ? '선택 없음' : `${pickerSelected.join('/')} 저장`}
-              </button>
-            </div>
+            {(() => {
+              const hasExisting = (allRequestsRef.current[nurseId]?.[day]?.codes || []).length > 0
+              if (pickerSelected.length === 0 && !hasExisting) return null
+              return (
+                <div className="border-t border-slate-100 pt-1">
+                  <button
+                    onClick={() => handlePickCodes(pickerSelected, pickerCondition)}
+                    className="w-full py-1 text-[10px] font-bold rounded transition-colors"
+                    style={{
+                      background: pickerSelected.length > 0 ? '#2A3A7A' : '#EF4444',
+                      color: 'white',
+                    }}>
+                    {pickerSelected.length === 0 ? '신청 삭제' : `${pickerSelected.join('/')} 저장`}
+                  </button>
+                </div>
+              )
+            })()}
           </div>
         </div>
         )

@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import { scheduleApi, requestsApi, settingsApi, rulesApi } from '../../api/client'
+import { scheduleApi, requestsApi, settingsApi, rulesApi, nursesApi } from '../../api/client'
 import { sc, fmtDate, getWd, getDate, mmdd, WD, NUM_DAYS, WORK_SET, SHIFT_GROUPS } from '../../utils/constants'
 import NameFilter from '../../components/NameFilter'
 
@@ -184,7 +184,7 @@ function CellEditModal({ nurse, day, startDate, currentShift, rect, onSave, onCl
   }, [onClose])
 
   const popW = Math.min(260, window.innerWidth - 8)
-  const popH = pendingViolations ? 300 : 210
+  const popH = pendingViolations ? 320 : 230
   const top = rect.bottom + 2 + popH > window.innerHeight ? rect.top - popH - 2 : rect.bottom + 2
   const left = Math.max(4, Math.min(rect.left, window.innerWidth - popW - 4))
 
@@ -203,10 +203,42 @@ function CellEditModal({ nurse, day, startDate, currentShift, rect, onSave, onCl
     }
   }
 
+  const dateLabel = startDate
+    ? `${mmdd(getDate(startDate, day))} (${WD[getWd(startDate, day)]})`
+    : `${day}일`
+  const curSt = currentShift ? sc(currentShift) : null
+
   return (
     <div ref={modalRef}
-      className="fixed z-50 bg-white rounded-xl shadow-xl border border-slate-200"
+      className="fixed z-50 bg-white rounded-xl shadow-xl border border-slate-200 overflow-hidden"
       style={{ width: popW, top, left }}>
+
+      {/* 헤더 */}
+      <div className="flex items-center justify-between px-3 py-2 border-b border-slate-100 bg-slate-50">
+        <div className="flex items-center gap-1.5 min-w-0">
+          {nurse?.name && (
+            <>
+              <span className="text-xs font-bold text-slate-700 flex-shrink-0">{nurse.name}</span>
+              <span className="text-slate-300 flex-shrink-0">·</span>
+            </>
+          )}
+          <span className="text-xs font-bold text-slate-700 flex-shrink-0">{dateLabel}</span>
+          {currentShift && curSt && (
+            <>
+              <span className="text-slate-300 flex-shrink-0">·</span>
+              <span className="text-[10px] font-bold px-1.5 py-0.5 rounded flex-shrink-0"
+                style={{ background: curSt.bg, color: curSt.fg, border: `1px solid ${curSt.border}` }}>
+                {currentShift}
+              </span>
+            </>
+          )}
+        </div>
+        <button onClick={onClose}
+          className="text-slate-400 hover:text-slate-600 text-base leading-none flex-shrink-0 ml-2">
+          ×
+        </button>
+      </div>
+
       <div className="p-2 space-y-1.5">
         {SHIFT_GROUPS.map(grp => {
           const shifts = grp.shifts.filter(s => !s.includes('제외'))
@@ -219,14 +251,20 @@ function CellEditModal({ nurse, day, startDate, currentShift, rect, onSave, onCl
                 const st = sc(s)
                 const isSel = s === currentShift
                 return (
-                  <button key={s} onClick={() => handleSelect(s)} disabled={saving}
-                    className="rounded-md font-bold py-0.5 px-2 text-xs transition-all disabled:opacity-40"
+                  <button key={s}
+                    onClick={() => handleSelect(isSel ? '' : s)}
+                    disabled={saving}
+                    className="relative rounded-md font-bold py-0.5 px-2 text-xs transition-all disabled:opacity-40"
                     style={{
                       background: isSel ? st.fg : st.bg,
                       color: isSel ? 'white' : st.fg,
                       border: `1.5px solid ${isSel ? st.fg : st.border}`,
                     }}>
                     {s}
+                    {isSel && (
+                      <span className="absolute -top-1 -right-1 text-white rounded-full flex items-center justify-center font-black"
+                        style={{ background: '#2A3A7A', width: 13, height: 13, fontSize: 8 }}>✓</span>
+                    )}
                   </button>
                 )
               })}
@@ -253,13 +291,6 @@ function CellEditModal({ nurse, day, startDate, currentShift, rect, onSave, onCl
             </div>
           </div>
         )}
-
-        <div className="border-t border-slate-100 pt-1">
-          <button onClick={() => handleSelect('')} disabled={saving}
-            className="w-full py-1 text-[10px] font-semibold text-slate-400 hover:text-red-500 hover:bg-red-50 rounded transition-colors disabled:opacity-40">
-            지우기
-          </button>
-        </div>
       </div>
     </div>
   )
@@ -289,6 +320,8 @@ export default function ScheduleResultTab({ period }) {
   const [dateFilter, setDateFilter] = useState(null)   // null | { day, codes: Set }
   const [datePicker, setDatePicker] = useState(null)   // null | { day, x, y }
   const [conflictWarnings, setConflictWarnings] = useState(null)  // null | warning[] (생성 전 충돌경고)
+  const [applying, setApplying] = useState(false)
+  const [applyMsg, setApplyMsg] = useState(null)  // { text, ok }
   const pollRef = useRef(null)
   const datePickerRef = useRef(null)
 
@@ -415,6 +448,36 @@ export default function ScheduleResultTab({ period }) {
       }
       setReqMap(map)
     } catch {}
+  }
+
+  const showApplyMsg = (text, ok = true, ms = 3000) => {
+    setApplyMsg({ text, ok })
+    setTimeout(() => setApplyMsg(null), ms)
+  }
+
+  const handleApplyPrevDB = async () => {
+    if (!window.confirm('DB의 가장 최근 근무표에서 전월N·수면이월·생휴·휴가잔여를 자동 반영합니다.\n계속하시겠습니까?')) return
+    setApplying(true)
+    try {
+      const res = await nursesApi.applyPrevSchedule()
+      showApplyMsg(`✓ ${res.data.summary}`)
+    } catch (err) {
+      showApplyMsg(err.response?.data?.detail || '자동 반영 실패', false, 7000)
+    } finally { setApplying(false) }
+  }
+
+  const handleApplyPrevExcel = async (e) => {
+    const file = e.target.files[0]
+    if (!file) return
+    setApplying(true)
+    try {
+      const res = await nursesApi.importPrevExcel(file, settings?.period_id)
+      const hasWarning = res.data.summary.includes('⚠️')
+      showApplyMsg(res.data.summary, !hasWarning, hasWarning ? 6000 : 3000)
+    } catch (err) {
+      showApplyMsg(err.response?.data?.detail || '엑셀 반영 실패', false, 5000)
+    } finally { setApplying(false) }
+    e.target.value = ''
   }
 
   const handleGenerate = async () => {
@@ -553,6 +616,50 @@ export default function ScheduleResultTab({ period }) {
         </div>
       </div>
 
+      {/* 이전 근무 반영 */}
+      <div id="admin-schedule-prev" className="border-b border-red-200 bg-red-50 px-4 py-2.5 flex-shrink-0">
+        <div className="flex items-center gap-3 flex-wrap">
+          <div className="flex-1 min-w-0">
+            <p className="text-xs font-semibold text-slate-700">이전 근무 반영
+              <span className="ml-1 font-normal text-slate-400">(전월N · 수면이월 · 생휴 · 휴가잔여)</span>
+            </p>
+            <p className="text-[11px] text-red-600 font-semibold mt-0.5">⚠ 근무표 생성 전 반드시 실행하세요</p>
+          </div>
+          <div className="flex gap-2 flex-shrink-0">
+            <button
+              onClick={handleApplyPrevDB}
+              disabled={applying}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg transition-colors disabled:opacity-50"
+              style={{ background: '#EFF6FF', color: '#1D4ED8', border: '1.5px solid #BFDBFE' }}>
+              {applying ? (
+                <div className="w-3 h-3 border-2 border-blue-300 border-t-blue-600 rounded-full animate-spin" />
+              ) : (
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 .49-3.36"/>
+                </svg>
+              )}
+              {applying ? '처리 중...' : 'DB 자동 반영'}
+            </button>
+            <label
+              className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg transition-colors cursor-pointer ${applying ? 'opacity-50 pointer-events-none' : ''}`}
+              style={{ background: '#F0FDF4', color: '#15803D', border: '1.5px solid #86EFAC' }}>
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                <polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/>
+              </svg>
+              엑셀에서 반영
+              <input type="file" accept=".xlsx,.xls" className="hidden" onChange={handleApplyPrevExcel} disabled={applying} />
+            </label>
+          </div>
+        </div>
+        {applyMsg && (
+          <p className={`text-xs font-semibold mt-1.5 ${applyMsg.ok ? 'text-emerald-700' : 'text-red-700'}`}
+            style={{ whiteSpace: 'pre-line' }}>
+            {applyMsg.text}
+          </p>
+        )}
+      </div>
+
       {/* 로딩 */}
       {loading && (
         <div className="flex items-center justify-center py-20 text-slate-400 gap-2 text-sm">
@@ -573,7 +680,7 @@ export default function ScheduleResultTab({ period }) {
               <div className="bg-blue-500 h-1 rounded-full animate-pulse" style={{ width: jobStatus === 'running' ? '65%' : '20%' }} />
             </div>
           </div>
-          <span className="text-xs text-blue-500 flex-shrink-0">최대 300초</span>
+          <span className="text-xs text-blue-500 flex-shrink-0">최대 {rulesData?.solver_timeout ?? 300}초</span>
         </div>
       )}
 

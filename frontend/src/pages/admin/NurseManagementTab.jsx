@@ -104,13 +104,12 @@ function NurseForm({ initial, onSave, onCancel }) {
   )
 }
 
-export default function NurseManagementTab({ period }) {
+export default function NurseManagementTab() {
   const [nurses, setNurses] = useState([])
   const [loading, setLoading] = useState(true)
   const [editing, setEditing] = useState(null)
   const [msg, setMsg] = useState({ text: '', ok: true })
   const [pinReset, setPinReset] = useState({})
-  const [applying, setApplying] = useState(false)
   const [importing, setImporting] = useState(false)
   const [selected, setSelected] = useState(new Set())
   const [deleting, setDeleting] = useState(false)
@@ -199,31 +198,6 @@ export default function NurseManagementTab({ period }) {
     e.target.value = ''
   }
 
-  const handleApplyPrevDB = async () => {
-    if (!window.confirm('DB의 가장 최근 근무표에서 전월N·수면이월·생휴·휴가잔여를 자동 반영합니다.\n계속하시겠습니까?')) return
-    setApplying(true)
-    try {
-      const res = await nursesApi.applyPrevSchedule()
-      showMsg(`✓ ${res.data.summary}`); load()
-    } catch (err) {
-      showMsg(err.response?.data?.detail || '자동 반영 실패', false, 7000)
-    } finally { setApplying(false) }
-  }
-
-  const handleApplyPrevExcel = async (e) => {
-    const file = e.target.files[0]
-    if (!file) return
-    setApplying(true)
-    try {
-      const res = await nursesApi.importPrevExcel(file, period?.id)
-      const hasWarning = res.data.summary.includes('⚠️')
-      showMsg(res.data.summary, !hasWarning, hasWarning ? 6000 : 2500); load()
-    } catch (err) {
-      showMsg(err.response?.data?.detail || '엑셀 반영 실패', false)
-    } finally { setApplying(false) }
-    e.target.value = ''
-  }
-
   return (
     <div className="flex-1 min-h-0 overflow-y-auto">
     <div className="p-2 sm:p-4 md:p-6 space-y-4 w-full max-w-5xl mx-auto">
@@ -247,51 +221,6 @@ export default function NurseManagementTab({ period }) {
           {importing ? '가져오는 중...' : '규칙 엑셀'}
           <input type="file" accept=".xlsx,.xls" className="hidden" onChange={handleExcelImport} disabled={importing} />
         </label>
-      </div>
-
-      {/* 이전 근무 반영 */}
-      <div id="admin-nurses-prev" className="card overflow-hidden">
-        <div className="px-4 py-2.5 bg-red-50 border-b border-red-200">
-          <p className="text-xs lg:text-sm font-semibold text-slate-700">이전 근무 반영 (전월N · 수면이월 · 생휴 · 휴가잔여)</p>
-          <div className="flex items-center gap-1 mt-0.5">
-            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#dc2626" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
-              <line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>
-            </svg>
-            <p className="text-xs font-bold text-red-600">새 근무표 생성 전에 반드시 실행하세요</p>
-          </div>
-        </div>
-        <div className="p-3 flex gap-2">
-          <button
-            onClick={handleApplyPrevDB}
-            disabled={applying}
-            className="flex-1 text-sm lg:text-base py-2.5 rounded-xl font-semibold flex items-center justify-center gap-2 transition-colors disabled:opacity-50"
-            style={{ background: '#EFF6FF', color: '#1D4ED8', border: '1.5px solid #BFDBFE' }}>
-            {applying ? (
-              <span className="flex items-center gap-2">
-                <div className="w-3.5 h-3.5 border-2 border-blue-300 border-t-blue-600 rounded-full animate-spin" />
-                처리 중...
-              </span>
-            ) : (
-              <>
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 .49-3.36"/>
-                </svg>
-                DB 자동 반영
-              </>
-            )}
-          </button>
-          <label
-            className="flex-1 text-sm lg:text-base py-2.5 rounded-xl font-semibold flex items-center justify-center gap-2 cursor-pointer transition-colors"
-            style={{ background: '#F0FDF4', color: '#15803D', border: '1.5px solid #86EFAC' }}>
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
-              <polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/>
-            </svg>
-            엑셀에서 반영
-            <input type="file" accept=".xlsx,.xls" className="hidden" onChange={handleApplyPrevExcel} disabled={applying} />
-          </label>
-        </div>
       </div>
 
       {/* 토스트 메시지 */}

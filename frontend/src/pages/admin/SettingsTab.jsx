@@ -244,6 +244,7 @@ export default function SettingsTab({ period, onPeriodSaved }) {
       </div>
 
       {rules && (<>
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         {/* 일일 최소 인원 */}
         <Section id="admin-settings-rules" title="일일 최소 인원" icon={
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#64748B" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -329,6 +330,7 @@ export default function SettingsTab({ period, onPeriodSaved }) {
             </div>
           </div>
         </div>
+      </div>{/* end grid */}
 
         {/* 규칙 저장 */}
         {rulesMsg.text && (

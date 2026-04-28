@@ -31,6 +31,7 @@ def get_rules():
         sleep_n_monthly=r["sleep_n_monthly"],
         sleep_n_bimonthly=r["sleep_n_bimonthly"],
         public_holidays=r.get("public_holidays", []),
+        solver_timeout=r.get("solver_timeout", 300),
     )
 
 

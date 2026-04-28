@@ -86,11 +86,6 @@ const TOUR_STEPS = [
     title: '② 규칙 엑셀 불러오기',
     content: '미리 작성된 엑셀 규칙 파일에서 간호사 목록을 한 번에 가져올 수 있습니다.',
   },
-  {
-    target: '#admin-nurses-prev', placement: 'bottom', disableBeacon: true,
-    title: '② 이전 근무 반영',
-    content: '새 달 근무표 생성 전 반드시 실행하세요. 전월 N 횟수·수면이월·생휴·휴가잔여를 자동 업데이트합니다. DB 자동 반영 또는 지난 달 엑셀 파일로 반영할 수 있어요.',
-  },
   // ── 신청현황 탭 ──
   {
     target: '#admin-submissions-toolbar', placement: 'bottom', disableBeacon: true,
@@ -98,6 +93,11 @@ const TOUR_STEPS = [
     content: '간호사들의 근무 신청을 한눈에 확인합니다. 셀 클릭으로 직접 수정하거나, 날짜 헤더 클릭으로 필터링, 엑셀로 내보내기·불러오기가 가능합니다.',
   },
   // ── 근무표 탭 ──
+  {
+    target: '#admin-schedule-prev', placement: 'bottom', disableBeacon: true,
+    title: '④ 이전 근무 반영',
+    content: '근무표 생성 전 반드시 실행하세요. 전월 N 횟수·수면이월·생휴·휴가잔여를 자동 업데이트합니다. DB 자동 반영 또는 지난 달 엑셀 파일로 반영할 수 있어요.',
+  },
   {
     target: '#admin-schedule-generate', placement: 'bottom', disableBeacon: true,
     title: '④ 근무표 생성',
@@ -108,9 +108,9 @@ const TOUR_STEPS = [
 const TAB_FOR_STEP = [
   null,
   'settings', 'settings', 'settings', 'settings',
-  'nurses', 'nurses', 'nurses',
+  'nurses', 'nurses',
   'submissions',
-  'schedule',
+  'schedule', 'schedule',
 ]
 
 const TABS = [
@@ -490,7 +490,7 @@ export default function AdminLayout() {
       {/* 탭 콘텐츠 */}
       <main className="flex-1 flex flex-col min-h-0">
         {activeTab === 'settings'    && <SettingsTab period={selPeriod} onPeriodSaved={loadPeriods} onSelectPeriod={handleSelectPeriod} />}
-        {activeTab === 'nurses'      && <NurseManagementTab period={selPeriod} />}
+        {activeTab === 'nurses'      && <NurseManagementTab />}
         {activeTab === 'submissions' && <SubmissionsTab period={selPeriod ? { ...selPeriod, period_id: selPeriod.id } : null} />}
         {activeTab === 'schedule'    && <ScheduleResultTab period={selPeriod ? { ...selPeriod, period_id: selPeriod.id } : null} />}
       </main>

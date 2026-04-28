@@ -4,7 +4,10 @@ import { WORK_SET, SHIFT_ORDER, MID_D, N_NO_NEXT, NUM_DAYS, WD, getWd } from "./
 export function validate(shifts, day, s, nurse, rules, startDate) {
   if (!s) return [];
   var v = [];
-  function g(d) { return shifts[d] || ""; }
+  // shifts[d]는 문자열 또는 배열(OR신청) 모두 가능 — 단일 코드로 정규화
+  function g(d) { var val = shifts[d]; return Array.isArray(val) ? (val[0] || "") : (val || ""); }
+  // 특정 코드가 해당 날에 포함되어 있는지 (배열/문자열 모두 처리)
+  function has(d, code) { var val = shifts[d]; return Array.isArray(val) ? val.includes(code) : val === code; }
   function dayStr(d) {
     if (!startDate) return d + "일";
     var dt = new Date(startDate); dt.setDate(dt.getDate() + d - 1);
@@ -110,6 +113,18 @@ export function validate(shifts, day, s, nurse, rules, startDate) {
     var fw = parseInt(nurse.fixed_weekly_off);
     if (!isNaN(fw) && getWd(startDate, day) === fw && s !== "주")
       v.push("고정주휴(" + WD[fw] + "): 주만 가능");
+  }
+  // H11: 주당 OFF ≤1개 (주4일제 ≤2개)
+  if (s === "OFF") {
+    var wStart = Math.floor((day - 1) / 7) * 7 + 1;
+    var wEnd = Math.min(wStart + 6, NUM_DAYS);
+    var maxOff = (nurse && nurse.is_4day_week) ? 2 : 1;
+    var offCount = 0;
+    for (var wd2 = wStart; wd2 <= wEnd; wd2++) {
+      if (wd2 !== day && has(wd2, "OFF")) offCount++;
+    }
+    if (offCount >= maxOff)
+      v.push("주당 OFF 최대 " + maxOff + "개 (이미 " + offCount + "개 신청됨)");
   }
   return v;
 }

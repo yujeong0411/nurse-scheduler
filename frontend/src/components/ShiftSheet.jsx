@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from 'react'
 import { validate } from '../utils/validate'
-import { SHIFT_GROUPS, WORK_SET, WD, sc, getWd, getDate } from '../utils/constants'
+import { SHIFT_GROUPS, WORK_SET, WD, sc, getWd, getDate, NUM_DAYS } from '../utils/constants'
 
 const PRIORITY_CODES = new Set([
   'D','E','N','D9','D1','중1','중2',
@@ -34,6 +34,22 @@ export default function ShiftSheet({ day, shifts, notes = {}, conditions = {}, n
     if (isHol && !WORK_SET.has(s) && s !== '법휴') {
       setConfirm({ shift: s, violations: ['공휴일에는 법휴만 허용됩니다 (근무 신청은 가능)'] })
       return
+    }
+    // H11: 주당 OFF 중복 차단 (이미 선택된 항목 deselect는 허용)
+    if (s === 'OFF' && !selected.includes(s)) {
+      const wStart = Math.floor((day - 1) / 7) * 7 + 1
+      const wEnd = Math.min(wStart + 6, NUM_DAYS)
+      const maxOff = nurse?.is_4day_week ? 2 : 1
+      let offCount = 0
+      for (let d = wStart; d <= wEnd; d++) {
+        if (d === day) continue
+        const v = shifts[d]
+        if (Array.isArray(v) ? v.includes('OFF') : v === 'OFF') offCount++
+      }
+      if (offCount >= maxOff) {
+        setConfirm({ shift: s, violations: [`주당 OFF는 최대 ${maxOff}개입니다 (이미 ${offCount}개 신청됨)`] })
+        return
+      }
     }
     setConfirm(null)
     setSelected(prev =>
@@ -215,11 +231,6 @@ export default function ShiftSheet({ day, shifts, notes = {}, conditions = {}, n
 
             {/* 하단 확정 버튼 */}
             <div className="px-4 pb-4 pt-2 flex gap-2 flex-shrink-0">
-              <button
-                onClick={() => { onSelect([], ''); onClose() }}
-                className="py-3 px-4 rounded-xl font-semibold text-slate-500 bg-slate-100 hover:bg-slate-200 transition-colors text-sm flex-shrink-0">
-                초기화
-              </button>
               <button
                 onClick={() => {
                   if (selected.length === 0) { onSelect([], ''); onClose(); return }

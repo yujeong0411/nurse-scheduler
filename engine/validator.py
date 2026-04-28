@@ -1,19 +1,20 @@
 """수동 수정 시 규칙 위반 검증 — 응급실 간호사 근무표 (D/E/N)
 
-검증 항목 (21개):
+검증 항목 (22개):
  1-2. 역순 금지 (전날→오늘, 오늘→다음날)
  3.   연속 근무 ≤5일
  4.   연속 N ≤3개
  5.   NN 후 휴무 2일
  6.   월 N ≤6개
- 7.   주당 휴무 ≥2개
+ 7.   주당 휴무 ≥2개 (OFF→근무 방향)
+ 7b.  주당 OFF ≤1개, 주4일제 ≤2개 (근무→OFF 방향, H11)
  8.   일일 인원 (D≥7, E≥8, N≥7)
  9.   책임 ≥1
  10.  책임+서브차지 ≥2
  11.  ROLE_TIERS 누적 제한
  12.  책임만 ≤1
  13.  법정공휴일 휴무 = 법휴/주
- 14.  주4일제 주당 OFF ≥3
+ 14.  주4일제 주당 휴무 ≥3 (OFF→근무 방향)
  15.  임산부 연속 근무 ≤4
  16.  N→1휴무→(D/D9/D1/중1/중2) 금지 — 1휴무 후 E·N만 허용
  16b. N 다음날 보수/필수/번표 금지
@@ -176,6 +177,21 @@ def validate_change(
             violations.append(
                 f"{week_start}~{week_end}일 주간 휴무 {off_count}일 "
                 f"(최소 {rules.min_weekly_off}일)"
+            )
+
+    # ── 7b. 주당 OFF ≤1개 (주4일제 ≤2개) — H11 ──
+    if new_shift == "OFF":
+        week_start = ((day - 1) // 7) * 7 + 1
+        week_end = min(week_start + 6, num_days)
+        max_weekly_off = 2 if nurse.is_4day_week else 1
+        off_in_week = sum(
+            1 for d in range(week_start, week_end + 1)
+            if d != day and schedule.get_shift(nid, d) == "OFF"
+        )
+        if off_in_week >= max_weekly_off:
+            violations.append(
+                f"{week_start}~{week_end}일 주간 OFF {off_in_week + 1}개 "
+                f"(최대 {max_weekly_off}개)"
             )
 
     # ── 8. 일일 인원 ──
