@@ -143,12 +143,6 @@ export default function ShiftSheet({ day, shifts, notes = {}, conditions = {}, n
 
             {/* 근무 목록 */}
             <div className="px-4 py-3 overflow-y-auto flex-1" style={{ WebkitOverflowScrolling: 'touch' }}>
-              {selected.length > 0 && (
-                <button onClick={() => setSelected([])}
-                  className="w-full mb-3 rounded-xl font-semibold text-slate-500 bg-slate-100 py-2.5 text-sm">
-                  ✕ 선택 초기화
-                </button>
-              )}
               {currentNote && (
                 <div className="mb-3 px-3 py-2 bg-amber-50 border border-amber-200 rounded-xl text-xs text-amber-700">
                   <span className="font-semibold">현재 사유:</span> {currentNote}
@@ -231,15 +225,28 @@ export default function ShiftSheet({ day, shifts, notes = {}, conditions = {}, n
 
             {/* 하단 확정 버튼 */}
             <div className="px-4 pb-4 pt-2 flex gap-2 flex-shrink-0">
-              <button
-                onClick={() => {
-                  if (selected.length === 0) { onSelect([], ''); onClose(); return }
-                  setNoteStep(true)
-                }}
-                className="flex-1 py-3 rounded-xl font-bold text-white transition-colors text-sm"
-                style={{ background: selected.length > 0 ? '#2A3A7A' : '#94A3B8' }}>
-                {selected.length === 0 ? '선택하세요' : `${selected.join(' / ')} 선택 완료`}
-              </button>
+              {selected.length > 0 ? (
+                <button
+                  onClick={() => setNoteStep(true)}
+                  className="flex-1 py-3 rounded-xl font-bold text-white transition-colors text-sm"
+                  style={{ background: '#2A3A7A' }}>
+                  {selected.join(' / ')} 선택 완료
+                </button>
+              ) : currentCodes.length > 0 ? (
+                <button
+                  onClick={() => { onSelect([], ''); onClose() }}
+                  className="flex-1 py-3 rounded-xl font-bold text-white transition-colors text-sm"
+                  style={{ background: '#DC2626' }}>
+                  신청 삭제
+                </button>
+              ) : (
+                <button
+                  disabled
+                  className="flex-1 py-3 rounded-xl font-bold text-white text-sm cursor-not-allowed"
+                  style={{ background: '#94A3B8' }}>
+                  선택하세요
+                </button>
+              )}
             </div>
           </>
         )}

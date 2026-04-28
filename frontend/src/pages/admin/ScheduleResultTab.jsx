@@ -618,18 +618,18 @@ export default function ScheduleResultTab({ period }) {
 
       {/* 이전 근무 반영 */}
       <div id="admin-schedule-prev" className="border-b border-red-200 bg-red-50 px-4 py-2.5 flex-shrink-0">
-        <div className="flex items-center gap-3 flex-wrap">
+        <div className="flex flex-col sm:flex-row sm:items-center gap-2">
           <div className="flex-1 min-w-0">
-            <p className="text-xs font-semibold text-slate-700">이전 근무 반영
-              <span className="ml-1 font-normal text-slate-400">(전월N · 수면이월 · 생휴 · 휴가잔여)</span>
+            <p className="text-xs font-semibold text-slate-700 whitespace-nowrap">이전 근무 반영
+              <span className="hidden sm:inline ml-1 font-normal text-slate-400">(전월N · 수면이월 · 생휴 · 휴가잔여)</span>
             </p>
             <p className="text-[11px] text-red-600 font-semibold mt-0.5">⚠ 근무표 생성 전 반드시 실행하세요</p>
           </div>
-          <div className="flex gap-2 flex-shrink-0">
+          <div className="flex gap-2">
             <button
               onClick={handleApplyPrevDB}
               disabled={applying}
-              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg transition-colors disabled:opacity-50"
+              className="flex-1 sm:flex-none flex items-center justify-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg transition-colors disabled:opacity-50"
               style={{ background: '#EFF6FF', color: '#1D4ED8', border: '1.5px solid #BFDBFE' }}>
               {applying ? (
                 <div className="w-3 h-3 border-2 border-blue-300 border-t-blue-600 rounded-full animate-spin" />
@@ -638,16 +638,16 @@ export default function ScheduleResultTab({ period }) {
                   <polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 .49-3.36"/>
                 </svg>
               )}
-              {applying ? '처리 중...' : 'DB 자동 반영'}
+              {applying ? '처리 중...' : <><span className="sm:hidden">DB</span><span className="hidden sm:inline">DB 자동 반영</span></>}
             </button>
             <label
-              className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg transition-colors cursor-pointer ${applying ? 'opacity-50 pointer-events-none' : ''}`}
+              className={`flex-1 sm:flex-none flex items-center justify-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg transition-colors cursor-pointer ${applying ? 'opacity-50 pointer-events-none' : ''}`}
               style={{ background: '#F0FDF4', color: '#15803D', border: '1.5px solid #86EFAC' }}>
               <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
                 <polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/>
               </svg>
-              엑셀에서 반영
+              <span className="sm:hidden">엑셀</span><span className="hidden sm:inline">엑셀에서 반영</span>
               <input type="file" accept=".xlsx,.xls" className="hidden" onChange={handleApplyPrevExcel} disabled={applying} />
             </label>
           </div>

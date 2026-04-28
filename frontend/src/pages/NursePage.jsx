@@ -490,7 +490,6 @@ export default function NursePage() {
                 const isSat = wd === 5, isSun = wd === 6
                 const isHol = (effectiveRules.public_holidays || []).includes(day)
                 const codes = shifts[day] || []
-                const s = codes.join('/')
                 const st = sc(codes[0] || '')
                 const ps = { ...shifts }; delete ps[day]
                 const vs = codes.length > 0 && nurseForValidate
@@ -534,8 +533,24 @@ export default function NursePage() {
                     {/* 근무 뱃지 or + 버튼 */}
                     {codes.length > 0 ? (
                       <span className="mt-1.5 flex-1 w-full flex flex-col items-center justify-center rounded-xl font-black relative"
-                        style={{ fontSize: s.length > 5 ? 10 : s.endsWith('제외') ? 11 : 14, background: st.bg, color: st.fg, border: `1.5px solid ${st.border}`, minHeight: 36 }}>
-                        {s}
+                        style={{ background: st.bg, color: st.fg, border: `1.5px solid ${st.border}`, minHeight: 36 }}>
+                        {codes.map((c, idx) => {
+                          const hasKorean = /[가-힣]/.test(c)
+                          const cleanLen = c.replace(/\s/g, '').length
+                          const scale = codes.length >= 3 ? 0.82 : 1
+                          let fs
+                          if (c.endsWith('제외')) fs = 9
+                          else if (cleanLen <= 1) fs = 15
+                          else if (cleanLen === 2) fs = hasKorean ? 11 : 13
+                          else if (cleanLen === 3) fs = hasKorean ? 10 : 11
+                          else fs = 9
+                          return (
+                            <span key={c} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+                              {idx > 0 && <span style={{ fontSize: 7, opacity: 0.4, lineHeight: 1 }}>/</span>}
+                              <span style={{ fontSize: Math.round(fs * scale), lineHeight: 1.2, textAlign: 'center' }}>{c}</span>
+                            </span>
+                          )
+                        })}
                         {conditions[day] && (
                           <span className="absolute -top-1.5 -left-1.5 text-white rounded-full flex items-center justify-center font-black"
                             style={{ background: conditions[day] === 'A' ? '#4338CA' : '#94A3B8', width: 14, height: 14, fontSize: 8 }}>

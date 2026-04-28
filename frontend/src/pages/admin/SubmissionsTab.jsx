@@ -63,7 +63,6 @@ export default function SubmissionsTab({ period }) {
   const [dateFilter, setDateFilter] = useState(null)   // null | { day, codes: Set }
   const [datePicker, setDatePicker] = useState(null)   // null | { day, x, y }
   const [scores, setScores] = useState({})              // nurse_id → score
-  const [scoreSortAsc, setScoreSortAsc] = useState(false) // 점수 낮은 순 정렬
   const pickerRef = useRef(null)
   const datePickerRef = useRef(null)
   const periodIdRef = useRef(null)
@@ -253,9 +252,7 @@ export default function SubmissionsTab({ period }) {
         return codes.some(c => dateFilter.codes.has(c))
       })
     : filteredStatus
-  const displayStatus = scoreSortAsc
-    ? [...dateFiltered].sort((a, b) => (scores[a.nurse_id] ?? 100) - (scores[b.nurse_id] ?? 100))
-    : dateFiltered
+  const displayStatus = dateFiltered
 
   const pickerCodes = datePicker ? (() => {
     const s = new Set()
@@ -269,7 +266,7 @@ export default function SubmissionsTab({ period }) {
   return (
     <div className="flex flex-col flex-1 min-h-0">
       {/* 상단 바 */}
-      <div id="admin-submissions-toolbar" className="bg-white border-b border-slate-100 px-4 py-3 flex items-center gap-4 flex-shrink-0">
+      <div id="admin-submissions-toolbar" className="bg-white border-b border-slate-100 px-4 py-3 flex-shrink-0 flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-4">
         <div className="flex-1 min-w-0">
           {startDate && <p className="font-bold text-slate-800 text-sm">{fmtDate(startDate)} ~ {endStr}</p>}
           <div className="flex items-center gap-2 mt-1">
@@ -286,36 +283,31 @@ export default function SubmissionsTab({ period }) {
             </button>
           </div>
         </div>
-        <div className="flex items-center gap-2 flex-shrink-0">
+        <div className="flex items-center gap-2 flex-wrap">
           <button
             onClick={handleRecalcScores}
-            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg transition-colors flex-shrink-0 border bg-amber-50 text-amber-700 border-amber-300 hover:bg-amber-100">
-            점수 재계산
-          </button>
-          <button
-            onClick={() => setScoreSortAsc(v => !v)}
-            title="점수 낮은 순 정렬"
-            className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg transition-colors flex-shrink-0 border ${scoreSortAsc ? 'bg-violet-100 text-violet-700 border-violet-300' : 'bg-slate-100 text-slate-600 border-slate-300 hover:bg-slate-200'}`}>
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-              <line x1="12" y1="5" x2="12" y2="19"/><polyline points="5 12 12 19 19 12"/>
+            title="점수 재계산"
+            className="flex items-center gap-1 px-3 py-1.5 text-xs font-semibold rounded-lg transition-colors border bg-amber-50 text-amber-700 border-amber-300 hover:bg-amber-100">
+            <svg className="sm:hidden" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+              <polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 .49-3.36"/>
             </svg>
-            점수순
+            <span className="sm:hidden">점수</span><span className="hidden sm:inline">점수 재계산</span>
           </button>
-          <label className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg transition-colors cursor-pointer flex-shrink-0 ${importing ? 'opacity-50 pointer-events-none' : ''} bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-300`}>
+          <label className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg transition-colors cursor-pointer ${importing ? 'opacity-50 pointer-events-none' : ''} bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-300`}>
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
               <polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/>
             </svg>
-            {importing ? '가져오는 중...' : '엑셀 불러오기'}
+            <span className="sm:hidden">{importing ? '...' : '업로드'}</span><span className="hidden sm:inline">{importing ? '가져오는 중...' : '엑셀 불러오기'}</span>
             <input type="file" accept=".xlsx,.xls" className="hidden" onChange={handleImport} />
           </label>
-          <button onClick={handleExport} disabled={exporting}
-            className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold rounded-lg transition-colors disabled:opacity-50 flex-shrink-0">
+          <button onClick={handleExport} disabled={exporting} title="엑셀 저장"
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold rounded-lg transition-colors disabled:opacity-50">
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
               <polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>
             </svg>
-            {exporting ? '내보내는 중...' : '엑셀 저장'}
+            <span className="sm:hidden">{exporting ? '...' : '엑셀'}</span><span className="hidden sm:inline">{exporting ? '내보내는 중...' : '엑셀 저장'}</span>
           </button>
         </div>
       </div>
