@@ -1,26 +1,10 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { requestsApi, nursesApi, rulesApi } from '../../api/client'
 import { sc, fmtDate, getWd, getDate, mmdd, WD, NUM_DAYS, SHIFT_GROUPS, WORK_SET, DEFAULT_RULES } from '../../utils/constants'
-import { validate } from '../../utils/validate'
+import { validate, buildRequestMap } from '../../utils/validate'
 import NameFilter from '../../components/NameFilter'
 
 const WD_KR = ['월', '화', '수', '목', '금', '토', '일']
-
-function buildRequestMap(items) {
-  const map = {}
-  items.forEach(item => {
-    if (!map[item.nurse_id]) map[item.nurse_id] = {}
-    const day = item.day
-    if (!map[item.nurse_id][day]) {
-      map[item.nurse_id][day] = { codes: [], is_or: false, note: item.note || '', condition: item.condition || 'B' }
-    }
-    map[item.nurse_id][day].codes.push(item.code)
-    if (item.is_or) map[item.nurse_id][day].is_or = true
-    if (item.note) map[item.nurse_id][day].note = item.note
-    if (item.condition === 'A') map[item.nurse_id][day].condition = 'A'
-  })
-  return map
-}
 
 function NurseInfoBadges({ nurse }) {
   if (!nurse) return null

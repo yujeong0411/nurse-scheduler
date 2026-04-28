@@ -1,19 +1,32 @@
 """인증 라우터"""
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, HTTPException, Depends, Response
 from ..database import get_db, db_nurses
 from ..auth import verify_password, hash_password, create_admin_token, create_nurse_token
 from ..deps import get_current_nurse, get_current_admin
 from ..schemas import (
-    AdminLoginRequest, NurseLoginRequest, TokenResponse,
+    AdminLoginRequest, NurseLoginRequest, LoginResponse,
     PinChangeRequest, AdminPwChangeRequest,
 )
 from ..config import settings
 
 router = APIRouter(prefix="/auth", tags=["인증"])
 
+_IS_PROD = settings.environment == "production"
 
-@router.post("/admin/login", response_model=TokenResponse)
-def admin_login(body: AdminLoginRequest):
+def _set_auth_cookie(response: Response, token: str, max_age: int) -> None:
+    response.set_cookie(
+        key="access_token",
+        value=token,
+        httponly=True,
+        secure=_IS_PROD,
+        samesite="none" if _IS_PROD else "lax",
+        max_age=max_age,
+        path="/",
+    )
+
+
+@router.post("/admin/login", response_model=LoginResponse)
+def admin_login(body: AdminLoginRequest, response: Response):
     db = get_db()
     res = db.table("departments").select("*").eq("id", settings.department_id).single().execute()
     hospital = res.data
@@ -22,11 +35,12 @@ def admin_login(body: AdminLoginRequest):
     if not verify_password(body.password, hospital["admin_pw_hash"]):
         raise HTTPException(401, "비밀번호가 틀렸습니다.")
     token = create_admin_token(settings.department_id)
-    return TokenResponse(token=token, role="admin", name="관리자")
+    _set_auth_cookie(response, token, settings.admin_token_expire_hours * 3600)
+    return LoginResponse(role="admin", name="관리자")
 
 
-@router.post("/nurse/login", response_model=TokenResponse)
-def nurse_login(body: NurseLoginRequest):
+@router.post("/nurse/login", response_model=LoginResponse)
+def nurse_login(body: NurseLoginRequest, response: Response):
     db = get_db()
     res = db_nurses(db).eq("id", body.nurse_id).single().execute()
     nurse = res.data
@@ -35,7 +49,20 @@ def nurse_login(body: NurseLoginRequest):
     if not verify_password(body.pin, nurse["pin_hash"]):
         raise HTTPException(401, "PIN이 틀렸습니다.")
     token = create_nurse_token(nurse["id"], nurse["name"])
-    return TokenResponse(token=token, role="nurse", name=nurse["name"])
+    _set_auth_cookie(response, token, settings.nurse_token_expire_hours * 3600)
+    return LoginResponse(role="nurse", name=nurse["name"], nurse_id=nurse["id"])
+
+
+@router.post("/logout")
+def logout(response: Response):
+    response.delete_cookie(
+        key="access_token",
+        httponly=True,
+        secure=_IS_PROD,
+        samesite="none" if _IS_PROD else "lax",
+        path="/",
+    )
+    return {"message": "로그아웃되었습니다."}
 
 
 @router.put("/nurse/pin")

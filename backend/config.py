@@ -15,6 +15,7 @@ class Settings(BaseSettings):
     admin_token_expire_hours: int = 8
     nurse_token_expire_hours: int = 24
     department_id: str          # 운영 부서 UUID — Supabase 초기화 시 설정
+    environment: str = "development"  # "development" | "production"
 
 
 settings = Settings()  # type: ignore[call-arg]

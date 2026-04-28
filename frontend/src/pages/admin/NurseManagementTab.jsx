@@ -115,12 +115,15 @@ export default function NurseManagementTab() {
   const [deleting, setDeleting] = useState(false)
   const lastClickedIdx = useRef(null)
 
+  const showMsg = (text, ok = true, ms = 2500) => { setMsg({ text, ok }); setTimeout(() => setMsg({ text: '', ok: true }), ms) }
+
   const load = () => {
-    nursesApi.list().then(res => setNurses(res.data)).catch(() => {}).finally(() => setLoading(false))
+    nursesApi.list()
+      .then(res => setNurses(res.data))
+      .catch(() => showMsg('간호사 목록을 불러오지 못했습니다.', false))
+      .finally(() => setLoading(false))
   }
   useEffect(() => { load() }, [])
-
-  const showMsg = (text, ok = true, ms = 2500) => { setMsg({ text, ok }); setTimeout(() => setMsg({ text: '', ok: true }), ms) }
 
   const handleSave = async (form) => {
     try {

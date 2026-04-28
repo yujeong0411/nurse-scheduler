@@ -1,9 +1,23 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useMemo } from 'react'
 import { scheduleApi, requestsApi, settingsApi, rulesApi, nursesApi } from '../../api/client'
 import { sc, fmtDate, getWd, getDate, mmdd, WD, NUM_DAYS, WORK_SET, SHIFT_GROUPS } from '../../utils/constants'
+import { buildRequestMap } from '../../utils/validate'
 import NameFilter from '../../components/NameFilter'
 
 const OFF_SET = new Set(['주', 'OFF', 'POFF', '법휴', '수면', '생휴', '휴가', '특휴', '공가', '경가', '보수', '필수', '번표', '병가'])
+
+// API 응답의 day 키를 숫자로 정규화 (JSON은 항상 문자열 키 반환)
+const normalizeSchedule = (data) => {
+  if (!data) return data
+  const out = {}
+  for (const [nurseId, shifts] of Object.entries(data)) {
+    out[nurseId] = {}
+    for (const [day, shift] of Object.entries(shifts)) {
+      out[nurseId][parseInt(day)] = shift
+    }
+  }
+  return out
+}
 
 const SHIFT_LEVEL = { 'D':1, 'D9':1, 'D1':1, '중1':2, '중2':2, 'E':3, 'N':4 }
 
@@ -17,7 +31,7 @@ function weekRange(day) {
 function inferOffPersonalReasons(day, requestedCode, assignedShift, nurseId, scheduleData, rules) {
   if (requestedCode !== 'OFF') return []
   const reasons = []
-  const get = (d) => scheduleData[nurseId]?.[d] ?? scheduleData[nurseId]?.[String(d)]
+  const get = (d) => scheduleData[nurseId]?.[d]
   const { start, end } = weekRange(day)
   const holidays = new Set(rules?.public_holidays || [])
 
@@ -54,7 +68,7 @@ function inferOffPersonalReasons(day, requestedCode, assignedShift, nurseId, sch
 
 function inferFailureReasons(day, requestedCode, assignedShift, nurseId, scheduleData, nurses) {
   const reasons = []
-  const get = (nid, d) => scheduleData[nid]?.[d] ?? scheduleData[nid]?.[String(d)]
+  const get = (nid, d) => scheduleData[nid]?.[d]
 
   const prevShift  = get(nurseId, day - 1)
   const prev2Shift = get(nurseId, day - 2)
@@ -355,19 +369,11 @@ export default function ScheduleResultTab({ period }) {
         if (schedRes.status === 'fulfilled') {
           const d = schedRes.value.data
           setScheduleId(d.id)
-          setScheduleData(d.schedule_data)
+          setScheduleData(normalizeSchedule(d.schedule_data))
           setNurses(d.nurses)
         }
         if (reqRes.status === 'fulfilled') {
-          const map = {}
-          for (const r of reqRes.value.data) {
-            const nid = r.nurse_id
-            const day = r.day
-            if (!map[nid]) map[nid] = {}
-            if (!map[nid][day]) map[nid][day] = { codes: [], is_or: r.is_or, condition: r.condition ?? 'B', score: r.score ?? 100 }
-            map[nid][day].codes.push(r.code)
-          }
-          setReqMap(map)
+          setReqMap(buildRequestMap(reqRes.value.data))
         }
         // 진행 중인 job이 있으면 재폴링 재개
         if (jobRes.status === 'fulfilled') {
@@ -430,7 +436,7 @@ export default function ScheduleResultTab({ period }) {
   const loadSchedule = async (sid) => {
     try {
       const res = await scheduleApi.get(sid)
-      setScheduleData(res.data.schedule_data)
+      setScheduleData(normalizeSchedule(res.data.schedule_data))
       setNurses(res.data.nurses)
       setGenerating(false)
     } catch { showMsg('결과 로드 실패', false); setGenerating(false) }
@@ -552,14 +558,15 @@ export default function ScheduleResultTab({ period }) {
     : filteredNurses
 
   // 날짜 피커에 표시할 근무 종류 목록 (해당 날짜에 실제 배정된 값만)
-  const pickerCodes = datePicker && scheduleData ? (() => {
+  const pickerCodes = useMemo(() => {
+    if (!datePicker || !scheduleData) return []
     const s = new Set()
     nurses.forEach(n => {
-      const v = scheduleData[n.id]?.[datePicker.day] || scheduleData[n.id]?.[String(datePicker.day)] || ''
+      const v = scheduleData[n.id]?.[datePicker.day] || ''
       if (v) s.add(v)
     })
     return [...s].sort()
-  })() : []
+  }, [datePicker, scheduleData, nurses])
 
   return (
     <div className="flex flex-col flex-1 min-h-0">
@@ -780,7 +787,7 @@ export default function ScheduleResultTab({ period }) {
                 // 통계 계산
                 let dCnt = 0, eCnt = 0, nCnt = 0, 중2Cnt = 0, offCnt = 0, vacCnt = 0
                 days.forEach(d => {
-                  const s = nurseShifts[d] || nurseShifts[String(d)] || ''
+                  const s = nurseShifts[d] || ''
                   if (s === 'D' || s === 'D9' || s === 'D1') dCnt++
                   else if (s === 'E') eCnt++
                   else if (s === 'N') nCnt++
@@ -799,7 +806,7 @@ export default function ScheduleResultTab({ period }) {
                       {nurse.name}
                     </td>
                     {days.map(d => {
-                      const s = nurseShifts[d] || nurseShifts[String(d)] || ''
+                      const s = nurseShifts[d] || ''
                       const wd = getWd(startDate, d)
                       const isSat = wd === 5, isSun = wd === 6
                       const req = reqMap[nurse.id]?.[d]
@@ -884,8 +891,7 @@ export default function ScheduleResultTab({ period }) {
                     </td>
                     {days.map(d => {
                       const cnt = nurses.filter(n => {
-                        const s = (scheduleData[n.id] || scheduleData[String(n.id)] || {})[d]
-                            || (scheduleData[n.id] || scheduleData[String(n.id)] || {})[String(d)] || ''
+                        const s = scheduleData[n.id]?.[d] || ''
                         return shift === 'D' ? (s === 'D' || s === 'D9' || s === 'D1')
                              : shift === '중2' ? (s === '중2' || s === '중1')
                              : s === shift

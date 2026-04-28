@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
 import Joyride, { STATUS } from 'react-joyride'
 import { useNavigate } from 'react-router-dom'
 import { requestsApi, settingsApi, rulesApi, nursesApi, holidaysApi } from '../api/client'
@@ -202,7 +202,7 @@ export default function NursePage() {
           setHolidayNames(holMap)
         }
       } catch (e) {
-        if (e.response?.status === 401) { clearAuth(); navigate('/') }
+        if (e.response?.status === 401) { await clearAuth(); navigate('/') }
       } finally {
         setLoading(false)
         if (!localStorage.getItem('nurse_tour_done')) setTourRun(true)
@@ -252,44 +252,54 @@ export default function NursePage() {
     }
   }
 
-  const handleLogout = () => { clearAuth(); navigate('/') }
+  const handleLogout = async () => { await clearAuth(); navigate('/') }
 
   const startDate = settings?.start_date || null
   const deadline = settings?.deadline || null
   const deptName = settings?.department_name || ''
   const passed = dlPassed(deadline)
-  const endStr = startDate ? fmtDate(new Date(new Date(startDate).getTime() + 27 * 86400000)) : ''
 
-  // 일요일 시작 달력 (Sun=0, Mon=1, ..., Sat=6)
-  const startWd = startDate ? new Date(startDate).getDay() : 0
-  const cells = []
-  for (let i = 0; i < startWd; i++) cells.push(null)
-  for (let d = 1; d <= NUM_DAYS; d++) cells.push(d)
-  while (cells.length % 7 !== 0) cells.push(null)
+  const endStr = useMemo(() =>
+    startDate ? fmtDate(new Date(new Date(startDate).getTime() + 27 * 86400000)) : ''
+  , [startDate])
+
+  const cells = useMemo(() => {
+    const startWd = startDate ? new Date(startDate).getDay() : 0
+    const arr = []
+    for (let i = 0; i < startWd; i++) arr.push(null)
+    for (let d = 1; d <= NUM_DAYS; d++) arr.push(d)
+    while (arr.length % 7 !== 0) arr.push(null)
+    return arr
+  }, [startDate])
 
   const reqCount = Object.keys(shifts).length
 
-  const nurseForValidate = nurse ? { ...nurse, is_4day: nurse.is_4day_week } : null
+  const nurseForValidate = useMemo(() =>
+    nurse ? { ...nurse, is_4day: nurse.is_4day_week } : null
+  , [nurse])
 
   // 공휴일 API 결과를 규칙에 병합 → 법휴 유효성 검사에 자동 반영
-  const effectiveRules = {
+  const effectiveRules = useMemo(() => ({
     ...rules,
     public_holidays: [
       ...(rules.public_holidays || []),
       ...Object.keys(holidayNames).map(Number)
         .filter(d => !(rules.public_holidays || []).includes(d))
     ]
-  }
+  }), [rules, holidayNames])
 
-  const allV = (startDate && nurseForValidate) ? Object.entries(shifts).reduce((acc, [day, codes]) => {
-    const ps = { ...shifts }; delete ps[+day]
-    const label = mmdd(getDate(startDate, +day))
-    codes.forEach(code => {
-      validate(ps, +day, code, nurseForValidate, effectiveRules, startDate)
-        .forEach(v => acc.push(codes.length > 1 ? `${label}(${code}): ${v}` : `${label}: ${v}`))
-    })
-    return acc
-  }, []) : []
+  const allV = useMemo(() => {
+    if (!startDate || !nurseForValidate) return []
+    return Object.entries(shifts).reduce((acc, [day, codes]) => {
+      const ps = { ...shifts }; delete ps[+day]
+      const label = mmdd(getDate(startDate, +day))
+      codes.forEach(code => {
+        validate(ps, +day, code, nurseForValidate, effectiveRules, startDate)
+          .forEach(v => acc.push(codes.length > 1 ? `${label}(${code}): ${v}` : `${label}: ${v}`))
+      })
+      return acc
+    }, [])
+  }, [shifts, effectiveRules, startDate, nurseForValidate])
 
   if (loading) return (
     <div className="min-h-screen flex items-center justify-center bg-slate-50">

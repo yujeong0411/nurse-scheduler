@@ -3,13 +3,7 @@ import axios from 'axios'
 const api = axios.create({
   baseURL: import.meta.env.VITE_API_URL || 'http://localhost:8000',
   timeout: 300000,  // 솔버 최대 180초 + 여유 (개별 요청에서 override 가능)
-})
-
-// 요청 인터셉터: JWT 토큰 자동 첨부
-api.interceptors.request.use((config) => {
-  const token = localStorage.getItem('token')
-  if (token) config.headers.Authorization = `Bearer ${token}`
-  return config
+  withCredentials: true,  // httpOnly 쿠키 자동 전송
 })
 
 // 응답 인터셉터: 401 시 로그인으로 이동
@@ -17,8 +11,9 @@ api.interceptors.response.use(
   (res) => res,
   (err) => {
     if (err.response?.status === 401 && !err.config?.url?.includes('/login')) {
-      localStorage.removeItem('token')
       localStorage.removeItem('role')
+      localStorage.removeItem('nurseName')
+      localStorage.removeItem('nurseId')
       window.location.href = '/'
     }
     return Promise.reject(err)
@@ -29,6 +24,7 @@ api.interceptors.response.use(
 export const authApi = {
   adminLogin:     (password) => api.post('/auth/admin/login', { password }),
   nurseLogin:     (nurse_id, pin) => api.post('/auth/nurse/login', { nurse_id, pin }),
+  logout:         () => api.post('/auth/logout'),
   changePin:      (old_pin, new_pin) => api.put('/auth/nurse/pin', { old_pin, new_pin }),
   changeAdminPw:  (old_pw, new_pw) => api.put('/auth/admin/password', { old_pw, new_pw }),
   resetPin:       (nurse_id) => api.put(`/auth/admin/pin-reset/${nurse_id}`),

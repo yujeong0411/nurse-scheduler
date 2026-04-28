@@ -128,3 +128,20 @@ export function validate(shifts, day, s, nurse, rules, startDate) {
   }
   return v;
 }
+
+// 신청 항목 배열 → { nurseId → { day → { codes, is_or, note, condition } } }
+export function buildRequestMap(items) {
+  const map = {}
+  items.forEach(item => {
+    if (!map[item.nurse_id]) map[item.nurse_id] = {}
+    const day = item.day
+    if (!map[item.nurse_id][day]) {
+      map[item.nurse_id][day] = { codes: [], is_or: false, note: item.note || '', condition: item.condition || 'B' }
+    }
+    map[item.nurse_id][day].codes.push(item.code)
+    if (item.is_or) map[item.nurse_id][day].is_or = true
+    if (item.note) map[item.nurse_id][day].note = item.note
+    if (item.condition === 'A') map[item.nurse_id][day].condition = 'A'
+  })
+  return map
+}

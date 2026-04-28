@@ -15,7 +15,7 @@ export default function AdminAuthPage() {
     setLoading(true)
     try {
       const res = await authApi.adminLogin(password)
-      setAuth(res.data.token, 'admin')
+      setAuth('admin')
       navigate('/admin')
     } catch (e) {
       setErr(e.response?.data?.detail || '비밀번호가 틀렸습니다.')

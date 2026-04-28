@@ -219,7 +219,6 @@ export default function AdminLayout() {
       const nextTab = TAB_FOR_STEP[next]
       const currTab = TAB_FOR_STEP[index]
       if (nextTab) setActiveTab(nextTab)
-      if (nextTab) setActiveTab(nextTab)
       if (nextTab && nextTab !== currTab) {
         setTimeout(() => setTourStep(next), 200)
       } else {
@@ -274,7 +273,7 @@ export default function AdminLayout() {
     }
   }
 
-  const handleLogout = () => { clearAuth(); navigate('/') }
+  const handleLogout = async () => { await clearAuth(); navigate('/') }
 
   const handlePwChange = async () => {
     if (pwForm.new_pw !== pwForm.confirm) { setPwMsg({ ok: false, text: '새 비밀번호가 일치하지 않습니다.' }); return }

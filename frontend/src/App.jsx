@@ -7,14 +7,14 @@ import AdminLayout from './pages/admin/AdminLayout'
 import useAuthStore from './store/auth'
 
 function RequireAdmin({ children }) {
-  const { token, role } = useAuthStore()
-  if (!token || role !== 'admin') return <Navigate to="/admin/login" replace />
+  const { role } = useAuthStore()
+  if (role !== 'admin') return <Navigate to="/admin/login" replace />
   return children
 }
 
 function RequireNurse({ children }) {
-  const { token, role } = useAuthStore()
-  if (!token || role !== 'nurse') return <Navigate to="/nurse/login" replace />
+  const { role } = useAuthStore()
+  if (role !== 'nurse') return <Navigate to="/nurse/login" replace />
   return children
 }
 

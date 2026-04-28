@@ -1,25 +1,24 @@
 import { create } from 'zustand'
+import { authApi } from '../api/client'
 
 const useAuthStore = create((set) => ({
-  token: localStorage.getItem('token') || null,
-  role: localStorage.getItem('role') || null,    // 'admin' | 'nurse'
+  role: localStorage.getItem('role') || null,       // 'admin' | 'nurse'
   nurseId: localStorage.getItem('nurseId') || null,
   nurseName: localStorage.getItem('nurseName') || null,
 
-  setAuth: (token, role, name = null, nurseId = null) => {
-    localStorage.setItem('token', token)
+  setAuth: (role, name = null, nurseId = null) => {
     localStorage.setItem('role', role)
     if (name) localStorage.setItem('nurseName', name)
     if (nurseId) localStorage.setItem('nurseId', nurseId)
-    set({ token, role, nurseName: name, nurseId })
+    set({ role, nurseName: name, nurseId })
   },
 
-  clearAuth: () => {
-    localStorage.removeItem('token')
+  clearAuth: async () => {
+    try { await authApi.logout() } catch { /* 쿠키 만료 등 무시 */ }
     localStorage.removeItem('role')
     localStorage.removeItem('nurseName')
     localStorage.removeItem('nurseId')
-    set({ token: null, role: null, nurseName: null, nurseId: null })
+    set({ role: null, nurseName: null, nurseId: null })
   },
 }))
 

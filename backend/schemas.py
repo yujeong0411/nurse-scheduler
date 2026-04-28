@@ -14,10 +14,10 @@ class NurseLoginRequest(BaseModel):
     nurse_id: str
     pin: str
 
-class TokenResponse(BaseModel):
-    token: str
+class LoginResponse(BaseModel):
     role: str
     name: str | None = None
+    nurse_id: str | None = None
 
 class PinChangeRequest(BaseModel):
     old_pin: str

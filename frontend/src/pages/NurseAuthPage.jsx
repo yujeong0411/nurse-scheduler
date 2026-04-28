@@ -36,7 +36,7 @@ export default function NurseAuthPage() {
     setLoading(true)
     try {
       const res = await authApi.nurseLogin(nurseId, pin)
-      setAuth(res.data.token, 'nurse', res.data.name, nurseId)
+      setAuth('nurse', res.data.name, res.data.nurse_id || nurseId)
       navigate('/nurse')
     } catch (e) {
       setErr(e.response?.data?.detail || 'PIN이 틀렸습니다.')
